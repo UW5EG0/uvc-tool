@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-feature android:name="android.hardware.usb.host" android:required="true" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <!-- REQUIRED: since Android 10 the system silently denies USB permission for
+         video-class (UVC) devices to apps that do not hold the runtime CAMERA
+         permission. No dialog, instant "denied". Do not remove. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!-- In-app updater: GitHub releases only (api.github.com + its download CDN). -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Gallery: see photos/videos saved by an earlier install of the app too
+         (after a reinstall MediaStore no longer counts them as "ours"). -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:theme="@style/Theme.UvcTool">
+
+        <!-- Both orientations. configChanges keeps the Activity (and the UVC stream)
+             alive across rotation; the overlay re-lays itself out in onConfigurationChanged.
+             USB_DEVICE_ATTACHED: plugging the endoscope opens the app. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
+        </activity>
+
+        <activity
+            android:name=".GalleryActivity"
+            android:exported="false" />
+
+        <!-- configChanges: rotating must not restart video playback or lose the zoom target -->
+        <activity
+            android:name=".ViewerActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize" />
+
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
+
+    </application>
+
+</manifest>

@@ -1,0 +1,15 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+  <!-- cable coming in from the lower left -->
+  <path android:strokeColor="#FF2EA8FF" android:strokeWidth="5" android:strokeLineCap="round"
+        android:pathData="M30,84 C38,76 40,70 46,64"/>
+  <!-- camera head: outer ring, lens, LED ring dots, glint -->
+  <path android:fillColor="#FF1B2B38" android:pathData="M54,54m-20,0a20,20 0,1 1,40 0a20,20 0,1 1,-40 0"/>
+  <path android:strokeColor="#FF2EA8FF" android:strokeWidth="3" android:fillColor="#00000000"
+        android:pathData="M54,54m-20,0a20,20 0,1 1,40 0a20,20 0,1 1,-40 0"/>
+  <path android:fillColor="#FF0A1218" android:pathData="M54,54m-10,0a10,10 0,1 1,20 0a10,10 0,1 1,-20 0"/>
+  <path android:fillColor="#FF7FD0FF" android:pathData="M51,50m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0"/>
+  <path android:fillColor="#FFFFE9A8" android:pathData="M54,38.5m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0"/>
+  <path android:fillColor="#FFFFE9A8" android:pathData="M69.5,54m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0"/>
+  <path android:fillColor="#FFFFE9A8" android:pathData="M54,69.5m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0"/>
+  <path android:fillColor="#FFFFE9A8" android:pathData="M38.5,54m-2,0a2,2 0,1 1,4 0a2,2 0,1 1,-4 0"/>
+</vector>

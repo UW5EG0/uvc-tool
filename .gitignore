@@ -1,0 +1,43 @@
+# Android/Gradle
+.gradle/
+build/
+*.apk
+*.aab
+*.ap_
+*.dex
+local.properties
+*.class
+bin/
+gen/
+out/
+release/
+android/.gradle/
+android/build/
+android/app/build/
+android/app/release/
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+*.swp
+*.swo
+
+# Kotlin/Java
+*.log
+*.orig
+hs_err_pid*
+
+# macOS
+.DS_Store
+
+# NDK
+*.so
+obj/
+
+# CMake build dir
+android/app/.cxx/

@@ -1,0 +1,66 @@
+# Builds a signed release APK when a version tag (v1.2.3) is pushed and
+# attaches it to a GitHub Release. Repository secrets:
+#   UVC_KEYSTORE_B64        base64 of the release keystore
+#   UVC_KEYSTORE_PASSWORD   keystore password
+#   UVC_KEY_ALIAS           key alias
+#   UVC_KEY_PASSWORD        key password
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Tag must match versionName
+        run: |
+          v=$(sed -n 's/.*versionName = "\(.*\)".*/\1/p' android/app/build.gradle.kts)
+          echo "versionName=$v tag=$GITHUB_REF_NAME"
+          test "v$v" = "$GITHUB_REF_NAME"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Android NDK + CMake
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;26.1.10909125" "cmake;3.22.1"
+
+      - name: Keystore
+        env:
+          UVC_KEYSTORE_B64: ${{ secrets.UVC_KEYSTORE_B64 }}
+        run: |
+          echo "$UVC_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "UVC_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build
+        working-directory: android
+        env:
+          UVC_KEYSTORE_PASSWORD: ${{ secrets.UVC_KEYSTORE_PASSWORD }}
+          UVC_KEY_ALIAS: ${{ secrets.UVC_KEY_ALIAS }}
+          UVC_KEY_PASSWORD: ${{ secrets.UVC_KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          mkdir -p ../out
+          cp app/build/outputs/apk/release/app-release.apk "../out/UvcTool-${GITHUB_REF_NAME}.apk"
+          "$ANDROID_HOME"/build-tools/*/apksigner verify --print-certs "../out/UvcTool-${GITHUB_REF_NAME}.apk" | head -3
+          (cd ../out && sha256sum *.apk | tee SHA256SUMS.txt)
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/*.apk
+            out/SHA256SUMS.txt
+          generate_release_notes: true

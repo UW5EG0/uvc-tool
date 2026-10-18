@@ -1,0 +1,32 @@
+user@Predator:~$ lsusb -v -d 349c:0411
+
+Bus 003 Device 002: ID 349c:0411 Generic HD camera
+Negotiated speed: High Speed (480Mbps)
+Device Descriptor: bLength 18, bcdUSB 2.00, bDeviceClass 239 Misc, bDeviceSubClass 2, bDeviceProtocol 1 (IAD), bMaxPacketSize0 64
+  idVendor 0x349c Generic, idProduct 0x0411 HD camera, bcdDevice 3.01, iSerial 3 "20201212000000", bNumConfigurations 1
+  Configuration Descriptor: wTotalLength 0x0177, bNumInterfaces 2, bConfigurationValue 1, bmAttributes 0x80 (Bus Powered), MaxPower 256mA
+    Interface Association: bFirstInterface 0, bInterfaceCount 2, bFunctionClass 14 Video, bFunctionSubClass 3 Video Interface Collection
+    Interface 0 alt 0: class 14 Video, subclass 1 Video Control, 1 endpoint
+      VC HEADER: bcdUVC 1.00, wTotalLength 0x0033, dwClockFrequency 24.000000MHz, bInCollection 1, baInterfaceNr(0) 1
+      VC INPUT_TERMINAL: bTerminalID 1, wTerminalType 0x0201 Camera Sensor, bControlSize 3, bmControls 0x00000000
+      VC PROCESSING_UNIT: bUnitID 2, bSourceID 1, wMaxMultiplier 0, bControlSize 2, bmControls 0x0000, bmVideoStandards 0x09 (descriptor too short warning)
+      VC OUTPUT_TERMINAL: bTerminalID 3, wTerminalType 0x0101 USB Streaming, bSourceID 2
+      Endpoint 0x83 EP 3 IN: Interrupt, wMaxPacketSize 0x000a (1x 10 bytes), bInterval 5
+        VC Endpoint EP_INTERRUPT: wMaxTransferSize 64
+    Interface 1 alt 0: class 14 Video, subclass 2 Video Streaming, 0 endpoints
+      VS INPUT_HEADER: bNumFormats 1, wTotalLength 0x0105, bEndpointAddress 0x81, bTerminalLink 3, bStillCaptureMethod 2, bTriggerSupport 1, bTriggerUsage 0, bControlSize 1, bmaControls(0) 0
+      VS FORMAT_UNCOMPRESSED: bFormatIndex 1, bNumFrameDescriptors 6, guidFormat {32595559-0000-0010-8000-00aa00389b71} (YUY2), bBitsPerPixel 16, bDefaultFrameIndex 1
+      VS FRAME_UNCOMPRESSED 1: 640x480, dwMinBitRate 39321600, dwMaxBitRate 147456000, dwMaxVideoFrameBufferSize 614400, dwDefaultFrameInterval 666667, intervals: 333333 (30fps), 2000000 (5fps)
+      VS FRAME_UNCOMPRESSED 2: 320x240, dwMinBitRate 9830400, dwMaxBitRate 36864000, buf 153600, intervals 333333, 2000000
+      VS FRAME_UNCOMPRESSED 3: 640x360, dwMinBitRate 29491200, dwMaxBitRate 110592000, buf 460800, intervals 333333, 2000000
+      VS FRAME_UNCOMPRESSED 4: 480x360, dwMinBitRate 22118400, dwMaxBitRate 82944000, buf 345600, intervals 333333, 2000000
+      VS FRAME_UNCOMPRESSED 5: 352x288, dwMinBitRate 12976128, dwMaxBitRate 48660480, buf 202752, intervals 333333, 2000000
+      VS FRAME_UNCOMPRESSED 6: 176x144, dwMinBitRate 3244032, dwMaxBitRate 12165120, buf 50688, intervals 333333, 2000000
+      (all frames: bmCapabilities 0x00 — still image unsupported per-frame)
+      VS STILL_IMAGE_FRAME: bEndpointAddress 0x00, 1 size pattern: 640x480, 0 compression patterns
+      VS COLORFORMAT: all Unspecified
+    Interface 1 alt 1: class 14 Video, subclass 2 Video Streaming, 1 endpoint
+      Endpoint 0x81 EP 1 IN: Isochronous, Synch Asynchronous, Usage Data, wMaxPacketSize 0x1400 (3x 1024 bytes), bInterval 1
+
+v4l2-ctl -d /dev/video0 --list-formats-ext: single YUYV format; sizes 640x480, 320x240, 640x360, 480x360, 352x288, 176x144; each advertises 30 fps and 5 fps.
+Measured: camera always streams ~16.6 fps (60 ms/frame) regardless of requested interval. See NOTES.md.

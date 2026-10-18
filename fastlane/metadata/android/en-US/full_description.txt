@@ -1,0 +1,9 @@
+Viewer for USB endoscopes and simple UVC cameras connected over OTG.
+
+• live video, starts automatically when the camera is plugged in
+• mirror for side-view attachments, rotation, white balance
+• photos (also with the camera cable's button) and H.264 video recording
+• gallery with up to 10x zoom and frame-by-frame video stepping
+• portrait and landscape
+
+No ads, no analytics. Own native layer on libusb and libuvc.
