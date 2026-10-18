@@ -53,6 +53,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String PREFS = "uvc_prefs";
     private static final String KEY_FLIP = "flip_x";            // legacy boolean (horizontal)
     private static final String KEY_FLIP_MODE = "flip_mode";    // 0 off, 1 H, 2 V, 3 both
+    private static final String KEY_PALETTE = "palette";        // Palettes.*
     private static final String KEY_ROTATION = "rotation";
     private static final String KEY_WARMTH = "warmth";
     private static final String KEY_LAST_CAMERA = "last_camera";     // "vvvv:pppp"
@@ -73,8 +74,6 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvStatus, tvFps, tvRec;
     private View groupNoCamera, panelWb;
     private ImageButton btnShutter, btnMode, btnLog, btnFlip, btnRotate;
-    /** Full panel (flip, rotate, shutter, mode, gallery) needs this much along its axis. */
-    private static final int FULL_PANEL_DP = 388;
     private int flipMode = 0;
     private boolean videoMode = false;            // shutter + cable button: photo or record
     private static final String KEY_VIDEO_MODE = "video_mode";
@@ -207,6 +206,7 @@ public class MainActivity extends AppCompatActivity {
         renderer.flipX = (flipMode & 1) != 0;
         renderer.flipY = (flipMode & 2) != 0;
         renderer.rotation = prefs.getInt(KEY_ROTATION, 0);
+        renderer.palette = prefs.getInt(KEY_PALETTE, Palettes.NONE);
         applyWarmth(prefs.getInt(KEY_WARMTH, 50));
 
         glView = new GLSurfaceView(this);
@@ -339,11 +339,25 @@ public class MainActivity extends AppCompatActivity {
         panel.setOrientation(land ? android.widget.LinearLayout.VERTICAL
                                   : android.widget.LinearLayout.HORIZONTAL);
 
-        // Big screen: flip | rotate | SHUTTER | mode | gallery.
-        // Small (4-5") phone: mode | SHUTTER | gallery; flip/rotate stay in the menu.
+        // Sizes are physical (mm), not dp: the shutter must be at least 12 x 12 mm.
+        // Full panel: flip | rotate | SHUTTER | mode | gallery. If that does not fit
+        // along the panel axis at those sizes: mode | SHUTTER | gallery (the rest is
+        // in the menu).
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
         Configuration c = getResources().getConfiguration();
-        int axisDp = land ? c.screenHeightDp : c.screenWidthDp;
-        boolean compact = axisDp < FULL_PANEL_DP;
+        float dpi = land ? dm.ydpi : dm.xdpi;
+        if (dpi < dm.densityDpi * 0.7f || dpi > dm.densityDpi * 1.3f) dpi = dm.densityDpi;  // bogus xdpi/ydpi
+        float mm = dpi / 25.4f;                                     // px per mm
+        float axisPx = (land ? c.screenHeightDp : c.screenWidthDp) * dm.density - dp(16);
+        final float SHUTTER = 12f, BTN = 8f, BTN_MIN = 7f, GAP = 2.5f, GAP_SHUTTER = 3f, PAD = 3f;
+        float fullMm = 2 * PAD + SHUTTER + 4 * BTN + 2 * GAP + 2 * GAP_SHUTTER;
+        boolean compact = fullMm * mm > axisPx;
+        float btnMm = BTN;
+        if (compact) {
+            float compactMm = 2 * PAD + SHUTTER + 2 * BTN + 2 * GAP_SHUTTER;
+            if (compactMm * mm > axisPx)                            // tiny screen: shrink side buttons
+                btnMm = Math.max(BTN_MIN, (axisPx / mm - 2 * PAD - SHUTTER - 2 * GAP_SHUTTER) / 2);
+        }
         View[] order = compact
                 ? new View[]{ btnMode, btnShutter, btnGallery }
                 : new View[]{ btnFlip, btnRotate, btnShutter, btnMode, btnGallery };
@@ -351,18 +365,24 @@ public class MainActivity extends AppCompatActivity {
         for (View v : order) panel.addView(v);
         btnFlip.setVisibility(compact ? View.GONE : View.VISIBLE);
         btnRotate.setVisibility(compact ? View.GONE : View.VISIBLE);
-        Log.i(TAG, "panel: " + (compact ? "compact" : "full") + " (axis " + axisDp + "dp)");
-        // Spacing along the panel axis: 14dp between buttons, 18dp around the shutter.
+
+        int pad = Math.round(PAD * mm), across = Math.round(2f * mm);
+        if (land) panel.setPadding(across, pad, across, pad); else panel.setPadding(pad, across, pad, across);
         for (int i = 0; i < panel.getChildCount(); i++) {
             View child = panel.getChildAt(i);
             boolean isShutter = child.getId() == R.id.btn_photo;
             boolean afterShutter = i > 0 && panel.getChildAt(i - 1).getId() == R.id.btn_photo;
-            int before = (i == 0) ? 0 : (isShutter || afterShutter ? dp(18) : dp(14));
+            int size = Math.round((isShutter ? SHUTTER : btnMm) * mm);
+            int before = (i == 0) ? 0 : Math.round((isShutter || afterShutter ? GAP_SHUTTER : GAP) * mm);
             ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) child.getLayoutParams();
+            lp.width = lp.height = size;
             lp.leftMargin = lp.rightMargin = lp.topMargin = lp.bottomMargin = 0;
             if (land) lp.topMargin = before; else lp.leftMargin = before;
             child.setLayoutParams(lp);
         }
+        Log.i(TAG, String.format(Locale.US,
+                "panel: %s, axis %.1f mm, shutter %.1f mm, buttons %.1f mm (dpi %.0f, full needs %.1f mm)",
+                compact ? "compact" : "full", axisPx / mm, SHUTTER, btnMm, dpi, fullMm));
     }
 
     private void setupCamera() {
@@ -842,6 +862,10 @@ public class MainActivity extends AppCompatActivity {
         for (int i = 0; i < 4; i++) mirror.add(1, 21 + i, i, names[i]).setChecked(flipMode == i);
         mirror.setGroupCheckable(1, true, true);
         m.add(0, 30, 2, getString(R.string.menu_rotate, renderer.rotation)).setEnabled(!recording);
+        android.view.SubMenu pal = m.addSubMenu(0, 50, 3, R.string.menu_palette);
+        int[] pn = { R.string.pal_none, R.string.pal_white, R.string.pal_black, R.string.pal_iron, R.string.pal_rainbow };
+        for (int i = 0; i < Palettes.COUNT; i++) pal.add(3, 51 + i, i, pn[i]).setChecked(renderer.palette == i);
+        pal.setGroupCheckable(3, true, true);
         m.add(0, 40, 3, R.string.menu_wb).setCheckable(true).setChecked(panelWb.getVisibility() == View.VISIBLE);
         m.add(2, 1, 4, R.string.menu_log).setCheckable(true).setChecked(logPanel.isShown());
         if (Updater.enabled()) m.add(2, 2, 5, R.string.update_check);
@@ -850,6 +874,12 @@ public class MainActivity extends AppCompatActivity {
         pm.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
             if (id >= 21 && id <= 24) { setFlipMode(id - 21); return true; }
+            if (id >= 51 && id < 51 + Palettes.COUNT) {
+                renderer.palette = id - 51;
+                prefs.edit().putInt(KEY_PALETTE, renderer.palette).apply();
+                glView.requestRender();
+                return true;
+            }
             switch (id) {
                 case 10: openGallery(); return true;
                 case 30: rotate90(); return true;

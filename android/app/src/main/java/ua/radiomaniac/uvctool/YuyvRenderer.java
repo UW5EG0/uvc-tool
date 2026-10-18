@@ -60,6 +60,9 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
     // --- user-controlled view parameters (set from UI thread, read on GL thread) ---
     public volatile boolean flipX = false;
     public volatile boolean flipY = false;
+    /** Palettes.NONE .. RAINBOW; set from any thread. */
+    public volatile int palette = Palettes.NONE;
+    private int lutTexture, lutPalette = -1, uLut, uPalette;
     public volatile int rotation = 0;              // 0 / 90 / 180 / 270
     public final float[] wbGain = {1f, 1f, 1f};    // R G B multipliers
     public volatile float gamma = 1.0f;
@@ -148,6 +151,12 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
         uRotation = GLES20.glGetUniformLocation(program, "u_rotation");
         uWbGain   = GLES20.glGetUniformLocation(program, "u_wbGain");
         uGamma    = GLES20.glGetUniformLocation(program, "u_gamma");
+        uLut      = GLES20.glGetUniformLocation(program, "u_lut");
+        uPalette  = GLES20.glGetUniformLocation(program, "u_palette");
+        int[] lt = new int[1];
+        GLES20.glGenTextures(1, lt, 0);
+        lutTexture = lt[0];
+        lutPalette = -1;
 
         int[] tex = new int[1];
         GLES20.glGenTextures(1, tex, 0);
@@ -235,6 +244,23 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform1i(uRotation, rotation);
         GLES20.glUniform3f(uWbGain, wbGain[0], wbGain[1], wbGain[2]);
         GLES20.glUniform1f(uGamma, gamma);
+        int pal = palette;
+        if (pal != Palettes.NONE && pal != lutPalette) {
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTexture);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, 256, 1, 0,
+                    GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, java.nio.ByteBuffer.wrap(Palettes.lut(pal)));
+            lutPalette = pal;
+        }
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lutTexture);
+        GLES20.glUniform1i(uLut, 1);
+        GLES20.glUniform1i(uPalette, pal != Palettes.NONE ? 1 : 0);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
 
         GLES20.glEnableVertexAttribArray(aPos);
         GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 0, quad);

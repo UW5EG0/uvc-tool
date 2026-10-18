@@ -10,6 +10,8 @@ uniform bool  u_flipY;      // mirror vertically
 uniform int   u_rotation;   // 0, 90, 180, 270 — clockwise
 uniform vec3  u_wbGain;     // white balance multipliers (R, G, B)
 uniform float u_gamma;      // 1.0 = linear
+uniform sampler2D u_lut;    // 256x1 false-colour palette
+uniform bool  u_palette;    // map brightness through u_lut
 
 varying vec2 v_texCoord;    // (0,0) top-left .. (1,1) bottom-right of the quad
 
@@ -51,8 +53,15 @@ void main() {
     vec4 t = texture2D(u_texture, vec2(texelX, texelY));
     float y = odd ? t.b : t.r;
 
-    vec3 rgb = yuv2rgb(y, t.g, t.a);
-    rgb = clamp(rgb * u_wbGain, 0.0, 1.0);
+    vec3 rgb;
+    if (u_palette) {
+        // brightness only (thermal / mono): full-range luma -> palette colour
+        float l = clamp((y - 16.0 / 255.0) * (255.0 / 219.0), 0.0, 1.0);
+        rgb = texture2D(u_lut, vec2(l * (255.0 / 256.0) + 0.5 / 256.0, 0.5)).rgb;
+    } else {
+        rgb = yuv2rgb(y, t.g, t.a);
+        rgb = clamp(rgb * u_wbGain, 0.0, 1.0);
+    }
     if (u_gamma != 1.0) rgb = pow(rgb, vec3(1.0 / u_gamma));
 
     gl_FragColor = vec4(rgb, 1.0);

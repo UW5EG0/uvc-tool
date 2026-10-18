@@ -77,4 +77,10 @@
     <string name="mirror_hv">Обидва</string>
     <string name="menu_rotate">Повернути на 90° (зараз %1$d°)</string>
     <string name="menu_wb">Баланс білого</string>
+    <string name="menu_palette">Палітра (теплак)</string>
+    <string name="pal_none">Звичайні кольори</string>
+    <string name="pal_white">Ч/Б: біле — гаряче</string>
+    <string name="pal_black">Ч/Б: чорне — гаряче</string>
+    <string name="pal_iron">Залізо (ironbow)</string>
+    <string name="pal_rainbow">Райдуга</string>
 </resources>
