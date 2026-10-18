@@ -51,7 +51,6 @@ public class GalleryActivity extends AppCompatActivity {
         tvTitle = findViewById(R.id.tv_title);
         tvEmpty = findViewById(R.id.tv_empty);
         findViewById(R.id.btn_back).setOnClickListener(v -> finish());
-        findViewById(R.id.btn_about).setOnClickListener(v -> UpdateUi.about(this));
 
         // Optional: lets the gallery also show files saved by an earlier install of the
         // app (MediaStore stops counting them as ours after a reinstall). Asked once;

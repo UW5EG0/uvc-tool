@@ -238,10 +238,29 @@ public class MainActivity extends AppCompatActivity {
         logPanel = new LogPanel(overlay.findViewById(R.id.panel_log), overlay.findViewById(R.id.tv_log));
         logPanel.start();
         ImageButton btnLog = overlay.findViewById(R.id.btn_log);
+        // menu: log on/off, check for updates, report a problem, about
         btnLog.setOnClickListener(v -> {
-            boolean shown = logPanel.toggle();
-            btnLog.setBackground(ContextCompat.getDrawable(this,
-                    shown ? R.drawable.bg_btn_active : R.drawable.bg_badge));
+            android.widget.PopupMenu pm = new android.widget.PopupMenu(this, btnLog);
+            android.view.Menu m = pm.getMenu();
+            m.add(0, 1, 0, R.string.menu_log).setCheckable(true).setChecked(logPanel.isShown());
+            if (Updater.enabled()) m.add(0, 2, 1, R.string.update_check);
+            m.add(0, 3, 2, R.string.menu_report);
+            m.add(0, 4, 3, R.string.cd_about);
+            pm.setOnMenuItemClickListener(item -> {
+                switch (item.getItemId()) {
+                    case 1: {
+                        boolean shown = logPanel.toggle();
+                        btnLog.setBackground(ContextCompat.getDrawable(this,
+                                shown ? R.drawable.bg_btn_active : R.drawable.bg_badge));
+                        return true;
+                    }
+                    case 2: UpdateUi.checkNow(this); return true;
+                    case 3: showReportDialog(); return true;
+                    case 4: UpdateUi.about(this); return true;
+                }
+                return false;
+            });
+            pm.show();
         });
         btnLog.setOnLongClickListener(v -> {
             android.content.ClipboardManager cm =
@@ -756,6 +775,51 @@ public class MainActivity extends AppCompatActivity {
         renderer.wbGain[0] = 1f + 0.35f * t; // R
         renderer.wbGain[1] = 1f;
         renderer.wbGain[2] = 1f - 0.35f * t; // B
+    }
+
+    // ------------------------------------------------------------------ problem report
+
+    private void showReportDialog() {
+        View v = getLayoutInflater().inflate(R.layout.dialog_report, null);
+        android.widget.EditText et = v.findViewById(R.id.et_comment);
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.menu_report)
+                .setView(v)
+                .setPositiveButton(R.string.report_github, (d, w) -> sendReport(et.getText().toString(), true))
+                .setNeutralButton(R.string.report_share, (d, w) -> sendReport(et.getText().toString(), false))
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    private void sendReport(String comment, boolean github) {
+        ReportBuilder.CameraState cs = new ReportBuilder.CameraState();
+        cs.device = currentDevice;
+        cs.mode = camera.getMode();
+        cs.modes = camera.getModes();
+        cs.fps = tvFps.getVisibility() == View.VISIBLE ? tvFps.getText().toString() : null;
+        cs.streaming = streaming;
+        cs.recording = recording;
+        cs.videoMode = videoMode;
+        String title = ReportBuilder.title(comment);
+        String body = ReportBuilder.body(this, comment, cs, logPanel.snapshot());
+        // the full text always goes to the clipboard: the GitHub URL may carry a shortened log
+        android.content.ClipboardManager cm =
+                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(android.content.ClipData.newPlainText(title, body));
+        try {
+            if (github) {
+                startActivity(new Intent(Intent.ACTION_VIEW, ReportBuilder.issueUrl(title, body)));
+                Toast.makeText(this, R.string.report_opened, Toast.LENGTH_LONG).show();
+            } else {
+                Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                        .putExtra(Intent.EXTRA_SUBJECT, title)
+                        .putExtra(Intent.EXTRA_TEXT, body);
+                startActivity(Intent.createChooser(send, getString(R.string.report_share)));
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "report: cannot open target", e);
+            Toast.makeText(this, R.string.report_copied, Toast.LENGTH_LONG).show();
+        }
     }
 
     /** Round gallery button shows the newest photo/video, or the gallery icon. */

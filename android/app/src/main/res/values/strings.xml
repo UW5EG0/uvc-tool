@@ -61,4 +61,12 @@
     <string name="cd_mode">Фото / відео</string>
     <string name="toast_mode_photo">Режим: фото</string>
     <string name="toast_mode_video">Режим: відео — кнопка запускає й зупиняє запис</string>
+    <string name="menu_log">Лог на екрані</string>
+    <string name="menu_report">Поскаржитись</string>
+    <string name="report_hint">Що сталося? Що робили перед цим?</string>
+    <string name="report_info">До звіту додаються: версії застосунку й Android, модель телефона, дозволи, список USB-пристроїв, режим камери і лог. Нічого не надсилається само — відкриється форма на GitHub (потрібен акаунт), де текст можна переглянути перед відправкою. Повний звіт також копіюється в буфер обміну.</string>
+    <string name="report_github">На GitHub</string>
+    <string name="report_share">Поділитися</string>
+    <string name="report_opened">Звіт скопійовано в буфер. Перевір текст і натисни «Submit new issue».</string>
+    <string name="report_copied">Звіт скопійовано в буфер обміну</string>
 </resources>

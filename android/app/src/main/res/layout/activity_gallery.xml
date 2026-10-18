@@ -29,14 +29,6 @@
             android:textColor="@color/text_primary"
             android:textSize="18sp"
             android:text="@string/gallery_title" />
-
-        <ImageButton
-            android:id="@+id/btn_about"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="@drawable/bg_btn_flat"
-            android:src="@drawable/ic_info"
-            android:contentDescription="@string/cd_about" />
     </LinearLayout>
 
     <FrameLayout

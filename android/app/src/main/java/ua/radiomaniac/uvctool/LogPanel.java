@@ -62,6 +62,8 @@ public class LogPanel {
         if (proc != null) proc.destroy();
     }
 
+    public boolean isShown() { return scroll.getVisibility() == View.VISIBLE; }
+
     public boolean toggle() {
         boolean show = scroll.getVisibility() != View.VISIBLE;
         scroll.setVisibility(show ? View.VISIBLE : View.GONE);
