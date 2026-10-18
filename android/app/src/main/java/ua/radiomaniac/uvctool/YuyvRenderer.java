@@ -62,6 +62,9 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
     public volatile boolean flipY = false;
     /** Palettes.NONE .. RAINBOW; set from any thread. */
     public volatile int palette = Palettes.NONE;
+    /** Show only the top half of the frame (thermal cameras put raw data in the bottom half). */
+    public volatile boolean cropTop = false;
+    private int uCropY;
     private int lutTexture, lutPalette = -1, uLut, uPalette;
     public volatile int rotation = 0;              // 0 / 90 / 180 / 270
     public final float[] wbGain = {1f, 1f, 1f};    // R G B multipliers
@@ -119,8 +122,9 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
     public boolean startRecording(VideoRecorder rec) {
         if (recorder != null) return true;
         boolean rot = isRotated90();
-        int w = rot ? frameH : frameW;
-        int h = rot ? frameW : frameH;
+        int effH = cropTop ? frameH / 2 : frameH;
+        int w = rot ? effH : frameW;
+        int h = rot ? frameW : effH;
         if (!rec.start(w, h)) return false;
         recorder = rec;
         recW = w;
@@ -148,6 +152,7 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
         uTexSize  = GLES20.glGetUniformLocation(program, "u_texSize");
         uFlipX    = GLES20.glGetUniformLocation(program, "u_flipX");
         uFlipY    = GLES20.glGetUniformLocation(program, "u_flipY");
+        uCropY    = GLES20.glGetUniformLocation(program, "u_cropY");
         uRotation = GLES20.glGetUniformLocation(program, "u_rotation");
         uWbGain   = GLES20.glGetUniformLocation(program, "u_wbGain");
         uGamma    = GLES20.glGetUniformLocation(program, "u_gamma");
@@ -241,6 +246,7 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform2f(uTexSize, texW, texH);
         GLES20.glUniform1i(uFlipX, flipX ? 1 : 0);
         GLES20.glUniform1i(uFlipY, flipY ? 1 : 0);
+        GLES20.glUniform1f(uCropY, cropTop ? 0.5f : 1f);
         GLES20.glUniform1i(uRotation, rotation);
         GLES20.glUniform3f(uWbGain, wbGain[0], wbGain[1], wbGain[2]);
         GLES20.glUniform1f(uGamma, gamma);
@@ -350,6 +356,7 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
     private volatile int[][] hintHard, hintSoft;
 
     private void computeViewport(int fw, int fh) {
+        if (cropTop) fh = fh / 2;
         boolean rot = isRotated90();
         float camW = rot ? fh : fw;
         float camH = rot ? fw : fh;

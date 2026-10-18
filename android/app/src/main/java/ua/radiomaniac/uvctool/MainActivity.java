@@ -54,6 +54,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_FLIP = "flip_x";            // legacy boolean (horizontal)
     private static final String KEY_FLIP_MODE = "flip_mode";    // 0 off, 1 H, 2 V, 3 both
     private static final String KEY_PALETTE = "palette";        // Palettes.*
+    private static final String KEY_CROP_PREFIX = "crop_top_";  // + camera key
     private static final String KEY_ROTATION = "rotation";
     private static final String KEY_WARMTH = "warmth";
     private static final String KEY_LAST_CAMERA = "last_camera";     // "vvvv:pppp"
@@ -540,6 +541,11 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "camera.start=" + ok);
         if (ok) {
             currentDevice = device;
+            // Thermal cameras (e.g. 256x384: picture on top, raw temperatures below)
+            // start with the bottom half hidden; the choice is remembered per camera.
+            boolean thermalLike = mode.width == 256 && mode.height == 384;
+            renderer.cropTop = prefs.getBoolean(KEY_CROP_PREFIX + UsbDeviceManager.key(device), thermalLike);
+            lastLayoutSig = null;
             prefs.edit().putString(KEY_LAST_CAMERA, UsbDeviceManager.key(device)).apply();
         }
         if (!ok) {
@@ -866,6 +872,8 @@ public class MainActivity extends AppCompatActivity {
         int[] pn = { R.string.pal_none, R.string.pal_white, R.string.pal_black, R.string.pal_iron, R.string.pal_rainbow };
         for (int i = 0; i < Palettes.COUNT; i++) pal.add(3, 51 + i, i, pn[i]).setChecked(renderer.palette == i);
         pal.setGroupCheckable(3, true, true);
+        m.add(0, 60, 3, R.string.menu_crop_top).setCheckable(true).setChecked(renderer.cropTop)
+                .setEnabled(!recording);
         m.add(0, 40, 3, R.string.menu_wb).setCheckable(true).setChecked(panelWb.getVisibility() == View.VISIBLE);
         m.add(2, 1, 4, R.string.menu_log).setCheckable(true).setChecked(logPanel.isShown());
         if (Updater.enabled()) m.add(2, 2, 5, R.string.update_check);
@@ -882,6 +890,13 @@ public class MainActivity extends AppCompatActivity {
             }
             switch (id) {
                 case 10: openGallery(); return true;
+                case 60:
+                    renderer.cropTop = !renderer.cropTop;
+                    if (currentDevice != null) prefs.edit().putBoolean(
+                            KEY_CROP_PREFIX + UsbDeviceManager.key(currentDevice), renderer.cropTop).apply();
+                    lastLayoutSig = null;
+                    glView.requestRender();
+                    return true;
                 case 30: rotate90(); return true;
                 case 40:
                     panelWb.setVisibility(panelWb.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);

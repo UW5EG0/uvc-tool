@@ -7,6 +7,7 @@ uniform vec2  u_texSize;    // (frameWidth / 2, frameHeight)
 
 uniform bool  u_flipX;      // mirror horizontally (side-view mirror attachment)
 uniform bool  u_flipY;      // mirror vertically
+uniform float u_cropY;      // 1.0 = whole frame, 0.5 = top half only (thermal cameras)
 uniform int   u_rotation;   // 0, 90, 180, 270 — clockwise
 uniform vec3  u_wbGain;     // white balance multipliers (R, G, B)
 uniform float u_gamma;      // 1.0 = linear
@@ -43,6 +44,7 @@ void main() {
 
     if (u_flipX) uv.x = 1.0 - uv.x;
     if (u_flipY) uv.y = 1.0 - uv.y;
+    uv.y *= u_cropY;
 
     // Pixel index across the full frame width; texel = pair of pixels.
     float px     = uv.x * u_texSize.x * 2.0;
