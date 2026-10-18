@@ -85,4 +85,5 @@
     <string name="pal_rainbow">Райдуга</string>
     <string name="menu_crop_top">Лише верхня половина кадру (теплак)</string>
     <string name="toast_image_reset">Налаштування картинки скинуто</string>
+    <string name="cd_reset">Скинути</string>
 </resources>

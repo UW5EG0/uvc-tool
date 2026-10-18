@@ -296,18 +296,7 @@ public class MainActivity extends AppCompatActivity {
 
 
         setupImageSliders(overlay);
-        SeekBar sbWarmth = overlay.findViewById(R.id.sb_warmth);
-        sbWarmth.setProgress(prefs.getInt(KEY_WARMTH, 50));
-        sbWarmth.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                applyWarmth(p);
-                glView.requestRender();
-            }
-            @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {
-                prefs.edit().putInt(KEY_WARMTH, sb.getProgress()).apply();
-            }
-        });
+
 
         showNoCamera(true);
     }
@@ -324,9 +313,12 @@ public class MainActivity extends AppCompatActivity {
         landscapeSet.clear(R.id.panel_wb, ConstraintSet.START);
         landscapeSet.clear(R.id.panel_wb, ConstraintSet.END);
         landscapeSet.clear(R.id.panel_wb, ConstraintSet.BOTTOM);
-        landscapeSet.constrainWidth(R.id.panel_wb, dp(260));
-        landscapeSet.connect(R.id.panel_wb, ConstraintSet.END, R.id.panel_controls, ConstraintSet.START, dp(8));
-        landscapeSet.connect(R.id.panel_wb, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, dp(16));
+        landscapeSet.constrainWidth(R.id.panel_wb, dp(370));
+        // pinned to the control column: right beside it, vertically centred on it
+        landscapeSet.connect(R.id.panel_wb, ConstraintSet.END, R.id.panel_controls, ConstraintSet.START, dp(4));
+        landscapeSet.connect(R.id.panel_wb, ConstraintSet.TOP, R.id.panel_controls, ConstraintSet.TOP, 0);
+        landscapeSet.connect(R.id.panel_wb, ConstraintSet.BOTTOM, R.id.panel_controls, ConstraintSet.BOTTOM, 0);
+        landscapeSet.setMargin(R.id.panel_wb, ConstraintSet.START, 0);
 
         // log toggle sits left of the control column; log panel never covers the controls
         landscapeSet.connect(R.id.btn_log, ConstraintSet.END, R.id.panel_controls, ConstraintSet.START, dp(8));
@@ -959,31 +951,68 @@ public class MainActivity extends AppCompatActivity {
         return u;
     }
 
-    // ------------------------------------------------------------------ brightness / contrast
+    // ------------------------------------------------------------------ picture adjustments
+    // One slider; the chips above choose what it controls: warmth, brightness, contrast.
 
-    private SeekBar sbBright, sbContrast;
+    private static final int ADJ_WARMTH = 0, ADJ_BRIGHT = 1, ADJ_CONTRAST = 2;
+    private static final String KEY_SW_BRIGHT = "sw_bright", KEY_SW_CONTRAST = "sw_contrast";
+    private static final String KEY_ADJ = "adj_selected";
+    private SeekBar sbAdjust;
+    private TextView adjLeft, adjRight, adjValueText;
+    private TextView[] adjChips;
+    private int adjSel = ADJ_WARMTH;
+    private final int[] adjValue = { 50, 50, 50 };          // slider positions 0..100
     /** Hardware ranges {min, max, def, cur} or null -> software in the shader. */
     private int[] hwBright, hwContrast;
-    private static final String KEY_SW_BRIGHT = "sw_bright", KEY_SW_CONTRAST = "sw_contrast";
 
     private void setupImageSliders(View overlay) {
-        sbBright = overlay.findViewById(R.id.sb_brightness);
-        sbContrast = overlay.findViewById(R.id.sb_contrast);
-        SeekBar.OnSeekBarChangeListener l = new SeekBar.OnSeekBarChangeListener() {
+        sbAdjust = overlay.findViewById(R.id.sb_adjust);
+        adjLeft = overlay.findViewById(R.id.adj_left);
+        adjRight = overlay.findViewById(R.id.adj_right);
+        adjValueText = overlay.findViewById(R.id.adj_value);
+        adjChips = new TextView[]{ overlay.findViewById(R.id.adj_warmth),
+                overlay.findViewById(R.id.adj_bright), overlay.findViewById(R.id.adj_contrast) };
+        for (int i = 0; i < 3; i++) { final int k = i; adjChips[i].setOnClickListener(v -> selectAdj(k)); }
+        overlay.findViewById(R.id.adj_reset).setOnClickListener(v -> resetImageControls());
+        adjValue[ADJ_WARMTH] = prefs.getInt(KEY_WARMTH, 50);
+        sbAdjust.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
-                if (fromUser) applyImageSlider(sb == sbBright ? 0 : 1, p);
+                if (!fromUser) return;
+                adjValue[adjSel] = p;
+                applyAdj(adjSel, p);
+                showAdjValue();
             }
             @Override public void onStartTrackingTouch(SeekBar sb) {}
-            @Override public void onStopTrackingTouch(SeekBar sb) {
-                if ((sb == sbBright ? hwBright : hwContrast) == null)
-                    prefs.edit().putInt(sb == sbBright ? KEY_SW_BRIGHT : KEY_SW_CONTRAST, sb.getProgress()).apply();
-            }
-        };
-        sbBright.setOnSeekBarChangeListener(l);
-        sbContrast.setOnSeekBarChangeListener(l);
-        // long press on the panel: back to defaults
-        panelWb.setOnLongClickListener(v -> { resetImageControls(); return true; });
+            @Override public void onStopTrackingTouch(SeekBar sb) { saveAdj(); }
+        });
         bindImageControls();
+        selectAdj(prefs.getInt(KEY_ADJ, ADJ_WARMTH));
+    }
+
+    private void selectAdj(int k) {
+        adjSel = k;
+        prefs.edit().putInt(KEY_ADJ, k).apply();
+        for (int i = 0; i < 3; i++) {
+            adjChips[i].setBackground(ContextCompat.getDrawable(this,
+                    i == k ? R.drawable.bg_btn_active : R.drawable.bg_badge));
+        }
+        String[][] icons = { {"❄", "☀"}, {"☾", "☼"}, {"◐", "◑"} };
+        adjLeft.setText(icons[k][0]);
+        adjRight.setText(icons[k][1]);
+        sbAdjust.setProgress(adjValue[k]);
+        showAdjValue();
+    }
+
+    /** Number next to the slider: offset from neutral, contrast as a factor, or the camera's own value. */
+    private void showAdjValue() {
+        if (adjValueText == null) return;
+        int p = adjValue[adjSel];
+        int[] hw = adjSel == ADJ_BRIGHT ? hwBright : adjSel == ADJ_CONTRAST ? hwContrast : null;
+        String t;
+        if (hw != null) t = String.valueOf(hw[0] + Math.round((hw[1] - hw[0]) * p / 100f));
+        else if (adjSel == ADJ_CONTRAST) t = String.format(Locale.US, "×%.2f", Math.pow(2.0, (p - 50) / 50.0));
+        else t = String.format(Locale.US, "%+d", p - 50);
+        adjValueText.setText(t);
     }
 
     /** After (re)opening a camera: hardware controls if it has them, else the shader. */
@@ -992,24 +1021,35 @@ public class MainActivity extends AppCompatActivity {
         hwContrast = cameraOpen ? camera.getCtrl(UvcCamera.CTRL_CONTRAST) : null;
         Log.i(TAG, "image controls: brightness " + (hwBright != null ? "camera" : "software")
                 + ", contrast " + (hwContrast != null ? "camera" : "software"));
-        sbBright.setProgress(hwBright != null ? toPercent(hwBright, hwBright[3]) : prefs.getInt(KEY_SW_BRIGHT, 50));
-        sbContrast.setProgress(hwContrast != null ? toPercent(hwContrast, hwContrast[3]) : prefs.getInt(KEY_SW_CONTRAST, 50));
-        applyImageSlider(0, sbBright.getProgress());
-        applyImageSlider(1, sbContrast.getProgress());
+        adjValue[ADJ_BRIGHT] = hwBright != null ? toPercent(hwBright, hwBright[3]) : prefs.getInt(KEY_SW_BRIGHT, 50);
+        adjValue[ADJ_CONTRAST] = hwContrast != null ? toPercent(hwContrast, hwContrast[3]) : prefs.getInt(KEY_SW_CONTRAST, 50);
+        for (int i = 0; i < 3; i++) applyAdj(i, adjValue[i]);
+        if (sbAdjust != null) { sbAdjust.setProgress(adjValue[adjSel]); showAdjValue(); }
     }
 
-    private void applyImageSlider(int which, int p) {
-        int[] hw = which == 0 ? hwBright : hwContrast;
-        if (hw != null) {
-            int v = hw[0] + Math.round((hw[1] - hw[0]) * p / 100f);
-            camera.setCtrl(which, v);
-            if (which == 0) renderer.swBright = 0f; else renderer.swContrast = 1f;
-        } else if (which == 0) {
-            renderer.swBright = (p - 50) / 100f;                       // -0.5 .. +0.5
+    private void applyAdj(int which, int p) {
+        if (which == ADJ_WARMTH) {
+            applyWarmth(p);
         } else {
-            renderer.swContrast = (float) Math.pow(2.0, (p - 50) / 50.0); // 0.5 .. 2
+            int[] hw = which == ADJ_BRIGHT ? hwBright : hwContrast;
+            int ctrl = which == ADJ_BRIGHT ? UvcCamera.CTRL_BRIGHTNESS : UvcCamera.CTRL_CONTRAST;
+            if (hw != null) {
+                camera.setCtrl(ctrl, hw[0] + Math.round((hw[1] - hw[0]) * p / 100f));
+                if (which == ADJ_BRIGHT) renderer.swBright = 0f; else renderer.swContrast = 1f;
+            } else if (which == ADJ_BRIGHT) {
+                renderer.swBright = (p - 50) / 100f;                        // -0.5 .. +0.5
+            } else {
+                renderer.swContrast = (float) Math.pow(2.0, (p - 50) / 50.0); // 0.5 .. 2
+            }
         }
         glView.requestRender();
+    }
+
+    private void saveAdj() {
+        SharedPreferences.Editor e = prefs.edit().putInt(KEY_WARMTH, adjValue[ADJ_WARMTH]);
+        if (hwBright == null) e.putInt(KEY_SW_BRIGHT, adjValue[ADJ_BRIGHT]);
+        if (hwContrast == null) e.putInt(KEY_SW_CONTRAST, adjValue[ADJ_CONTRAST]);
+        e.apply();
     }
 
     private static int toPercent(int[] hw, int v) {
@@ -1017,15 +1057,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void resetImageControls() {
-        sbBright.setProgress(hwBright != null ? toPercent(hwBright, hwBright[2]) : 50);
-        sbContrast.setProgress(hwContrast != null ? toPercent(hwContrast, hwContrast[2]) : 50);
-        applyImageSlider(0, sbBright.getProgress());
-        applyImageSlider(1, sbContrast.getProgress());
-        prefs.edit().putInt(KEY_SW_BRIGHT, 50).putInt(KEY_SW_CONTRAST, 50).putInt(KEY_WARMTH, 50).apply();
-        SeekBar w = overlayRoot.findViewById(R.id.sb_warmth);
-        w.setProgress(50);
-        applyWarmth(50);
-        glView.requestRender();
+        adjValue[ADJ_WARMTH] = 50;
+        adjValue[ADJ_BRIGHT] = hwBright != null ? toPercent(hwBright, hwBright[2]) : 50;
+        adjValue[ADJ_CONTRAST] = hwContrast != null ? toPercent(hwContrast, hwContrast[2]) : 50;
+        for (int i = 0; i < 3; i++) applyAdj(i, adjValue[i]);
+        sbAdjust.setProgress(adjValue[adjSel]);
+        showAdjValue();
+        saveAdj();
         Toast.makeText(this, R.string.toast_image_reset, Toast.LENGTH_SHORT).show();
     }
 
