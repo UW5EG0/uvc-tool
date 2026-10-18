@@ -408,11 +408,7 @@ public class MainActivity extends AppCompatActivity {
             }
             lastGlitchRestart = now;
             glitchRestarts++;
-            UvcMode m = camera.getMode();
-            Log.w(TAG, "glitch: restarting stream (#" + glitchRestarts + ") " + (m != null ? m.label() : ""));
-            camera.stop();
-            streaming = false;
-            if (m == null || !camera.start(m)) setStatus("Камера не перезапустилась — див. лог", R.color.text_error);
+            restartStream("glitch #" + glitchRestarts);
         });
         camera.setErrorListener((stage, message) -> {
             Log.e(TAG, "camera error [" + stage + "]: " + message);
@@ -878,6 +874,7 @@ public class MainActivity extends AppCompatActivity {
         android.widget.PopupMenu pm = new android.widget.PopupMenu(this, btnLog);
         android.view.Menu m = pm.getMenu();
         m.add(0, 10, 0, R.string.menu_gallery).setEnabled(!recording);
+        m.add(0, 70, 0, R.string.menu_restart).setEnabled(cameraOpen && !recording);
         android.view.SubMenu mirror = m.addSubMenu(0, 20, 1, R.string.menu_mirror);
         int[] names = { R.string.mirror_off, R.string.mirror_h, R.string.mirror_v, R.string.mirror_hv };
         for (int i = 0; i < 4; i++) mirror.add(1, 21 + i, i, names[i]).setChecked(flipMode == i);
@@ -905,6 +902,7 @@ public class MainActivity extends AppCompatActivity {
             }
             switch (id) {
                 case 10: openGallery(); return true;
+                case 70: restartStream("menu"); return true;
                 case 60:
                     renderer.cropTop = !renderer.cropTop;
                     if (currentDevice != null) prefs.edit().putBoolean(
@@ -1164,6 +1162,17 @@ public class MainActivity extends AppCompatActivity {
         showAdjValue();
         saveAdj();
         Toast.makeText(this, R.string.toast_image_reset, Toast.LENGTH_SHORT).show();
+    }
+
+    /** Stop and start the stream with the same mode (fixes a wrong-colour start). */
+    private void restartStream(String why) {
+        UvcMode m = camera.getMode();
+        if (!cameraOpen || m == null || recording) return;
+        Log.w(TAG, "restart stream (" + why + "): " + m.label());
+        camera.stop();
+        streaming = false;
+        setStatus(getString(R.string.status_opening), R.color.text_secondary);
+        if (!camera.start(m)) setStatus("Камера не перезапустилась — див. лог", R.color.text_error);
     }
 
     private void rotate90() {
