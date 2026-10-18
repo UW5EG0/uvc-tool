@@ -70,7 +70,10 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView tvStatus, tvFps, tvRec;
     private View groupNoCamera, panelWb;
-    private ImageButton btnFlip, btnWb, btnRecord, btnRotate;
+    private ImageButton btnFlip, btnWb, btnRotate, btnShutter, btnMode;
+    private boolean videoMode = false;            // shutter + cable button: photo or record
+    private static final String KEY_VIDEO_MODE = "video_mode";
+    private final android.media.MediaActionSound sound = new android.media.MediaActionSound();
     private ShapeableImageView btnGallery;
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
 
@@ -126,6 +129,9 @@ public class MainActivity extends AppCompatActivity {
         setupCamera();
         setupUsb();
 
+        sound.load(android.media.MediaActionSound.SHUTTER_CLICK);
+        sound.load(android.media.MediaActionSound.START_VIDEO_RECORDING);
+        sound.load(android.media.MediaActionSound.STOP_VIDEO_RECORDING);
         photoSaver = new PhotoSaver(this);
         videoRecorder = new VideoRecorder(this);
 
@@ -185,6 +191,7 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         logPanel.stop();
         bg.shutdownNow();
+        sound.release();
         usbDeviceManager.unregister();
         camera.stop();
         camera.close();
@@ -219,7 +226,8 @@ public class MainActivity extends AppCompatActivity {
         panelWb       = overlay.findViewById(R.id.panel_wb);
         btnFlip       = overlay.findViewById(R.id.btn_flip);
         btnWb         = overlay.findViewById(R.id.btn_wb);
-        btnRecord     = overlay.findViewById(R.id.btn_record);
+        btnShutter    = overlay.findViewById(R.id.btn_photo);
+        btnMode       = overlay.findViewById(R.id.btn_mode);
         btnRotate     = overlay.findViewById(R.id.btn_rotate);
         tvRec         = overlay.findViewById(R.id.tv_rec);
         tvStatus.setOnClickListener(v -> showSourceSheet());
@@ -275,9 +283,16 @@ public class MainActivity extends AppCompatActivity {
             glView.requestRender();
         });
 
-        overlay.findViewById(R.id.btn_photo).setOnClickListener(v -> takePhoto());
-        btnRecord.setOnClickListener(v -> {
-            if (recording) stopRecording(); else startRecording();
+        videoMode = prefs.getBoolean(KEY_VIDEO_MODE, false);
+        updateShutter();
+        btnShutter.setOnClickListener(v -> onShutter());
+        btnMode.setOnClickListener(v -> {
+            if (recording) return;
+            videoMode = !videoMode;
+            prefs.edit().putBoolean(KEY_VIDEO_MODE, videoMode).apply();
+            updateShutter();
+            Toast.makeText(this, videoMode ? R.string.toast_mode_video : R.string.toast_mode_photo,
+                    Toast.LENGTH_SHORT).show();
         });
         overlay.findViewById(R.id.btn_connect).setOnClickListener(v -> connectCamera());
 
@@ -363,7 +378,7 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(() -> tvFps.setVisibility(View.VISIBLE));
             }
         });
-        camera.setButtonListener(this::takePhoto);
+        camera.setButtonListener(this::onShutter);       // cable button = shutter
         camera.setErrorListener((stage, message) -> {
             Log.e(TAG, "camera error [" + stage + "]: " + message);
             runOnUiThread(() -> {
@@ -625,8 +640,31 @@ public class MainActivity extends AppCompatActivity {
 
     // ------------------------------------------------------------------ actions
 
+    /** Shutter and the camera's cable button: photo, or start/stop recording. */
+    private void onShutter() {
+        if (videoMode) { if (recording) stopRecording(); else startRecording(); }
+        else takePhoto();
+    }
+
+    /** Shutter look follows the mode: camera icon / red dot / stop square while recording. */
+    private void updateShutter() {
+        if (videoMode) {
+            btnShutter.setImageResource(recording ? R.drawable.ic_stop : R.drawable.ic_shutter_rec);
+            btnShutter.setBackground(ContextCompat.getDrawable(this,
+                    recording ? R.drawable.bg_btn_rec_active : R.drawable.bg_btn_shutter));
+        } else {
+            btnShutter.setImageResource(R.drawable.ic_photo);
+            btnShutter.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_btn_shutter));
+        }
+        // the toggle shows the mode you switch TO
+        btnMode.setImageResource(videoMode ? R.drawable.ic_mode_photo : R.drawable.ic_mode_video);
+        btnMode.setEnabled(!recording);
+        btnMode.setAlpha(recording ? 0.35f : 1f);
+    }
+
     private void takePhoto() {
         if (!streaming) return;
+        sound.play(android.media.MediaActionSound.SHUTTER_CLICK);
         renderer.requestCapture((x, y, w, h) -> {
             boolean ok = photoSaver.captureFromGl(x, y, w, h);
             runOnUiThread(() -> {
@@ -648,8 +686,8 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 recording = true;
-                btnRecord.setImageResource(R.drawable.ic_stop);
-                btnRecord.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_btn_rec_active));
+                sound.play(android.media.MediaActionSound.START_VIDEO_RECORDING);
+                updateShutter();
                 btnRotate.setEnabled(false);       // output size is fixed for the file
                 btnRotate.setAlpha(0.35f);
                 btnGallery.setEnabled(false);      // leaving the screen ends the recording
@@ -666,8 +704,8 @@ public class MainActivity extends AppCompatActivity {
         recording = false;
         uiHandler.removeCallbacks(recTick);
         tvRec.setVisibility(View.GONE);
-        btnRecord.setImageResource(R.drawable.ic_record);
-        btnRecord.setBackground(ContextCompat.getDrawable(this, R.drawable.bg_btn_round));
+        sound.play(android.media.MediaActionSound.STOP_VIDEO_RECORDING);
+        updateShutter();
         btnRotate.setEnabled(true);
         btnRotate.setAlpha(1f);
         btnGallery.setEnabled(true);

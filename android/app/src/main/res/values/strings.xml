@@ -58,4 +58,7 @@
     <string name="status_no_supported_mode">Камера не має режимів YUYV — поки не підтримується</string>
     <string name="toast_camera_added">Підключено ще камеру: %1$s. Перемкнути — тап по статусу вгорі.</string>
     <string name="toast_stop_rec_first">Спочатку зупиніть запис</string>
+    <string name="cd_mode">Фото / відео</string>
+    <string name="toast_mode_photo">Режим: фото</string>
+    <string name="toast_mode_video">Режим: відео — кнопка запускає й зупиняє запис</string>
 </resources>
