@@ -79,6 +79,20 @@ static void status_cb(uvc_status_class status_class, int event, int selector,
     }
 }
 
+// Snapshot button on the camera. The endoscope sends it as a VideoStreaming-interface
+// status packet ("02 01 00 01" press / "... 00" release); libuvc routes those to the
+// button callback, not to the status callback above.
+static void button_cb(int button, int state, void *user_ptr) {
+    LOGI("button: intf=%d state=%d", button, state);
+    JNIEnv *env; bool attached = false;
+    if (jvm->GetEnv((void**)&env, JNI_VERSION_1_6) != JNI_OK) {
+        jvm->AttachCurrentThread(&env, NULL);
+        attached = true;
+    }
+    env->CallVoidMethod((jobject)user_ptr, j_on_button, (jint)state);
+    if (attached) jvm->DetachCurrentThread();
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_ua_radiomaniac_uvctool_UvcCamera_nativeOpen(JNIEnv *env, jobject, jint fd) {
     // Close stale handle before re-opening (avoids BUSY on repeated open)
@@ -93,6 +107,7 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeOpen(JNIEnv *env, jobject, jint fd) 
     LOGI("uvc_wrap fd=%d: %d (%s)", fd, r, uvc_strerror(r));
     if (r != UVC_SUCCESS) return JNI_FALSE;
     uvc_set_status_callback(devh, status_cb, j_camera_obj);
+    uvc_set_button_callback(devh, button_cb, j_camera_obj);
     return JNI_TRUE;
 }
 

@@ -15,7 +15,7 @@ public final class UvcMode {
     public static final int FOURCC_H264 = 0x34363248;
 
     public final int fourcc, width, height;
-    /** Offered frame rates, highest first (rounded from the camera's frame intervals). */
+    /** The frame rate of this mode (single element; empty if the camera gave none). */
     public final int[] fps;
 
     public UvcMode(int fourcc, int width, int height, int[] fps) {
@@ -43,15 +43,13 @@ public final class UvcMode {
 
     public String sizeName() { return width + "×" + height; }
 
-    /** "YUYV 640×480 · 30/20/15 к/с" */
+    /** "YUYV 640×480 · 30 к/с" (one mode per frame rate). */
     public String label() {
-        StringBuilder sb = new StringBuilder(formatName()).append(' ').append(sizeName()).append(" · ");
-        for (int i = 0; i < fps.length; i++) { if (i > 0) sb.append('/'); sb.append(fps[i]); }
-        return sb.append(" к/с").toString();
+        return formatName() + " " + sizeName() + " · " + maxFps() + " к/с";
     }
 
-    /** Persisted as "fourcc,w,h". The fps is picked at start (highest offered). */
-    public String key() { return String.format(Locale.US, "%d,%d,%d", fourcc, width, height); }
+    /** Persisted as "fourcc,w,h,fps". */
+    public String key() { return String.format(Locale.US, "%d,%d,%d,%d", fourcc, width, height, maxFps()); }
 
     public boolean sameAs(String key) { return key != null && key.equals(key()); }
 
@@ -70,9 +68,9 @@ public final class UvcMode {
                 if (v > 0 && !f.contains(v)) f.add(v);
             }
             Collections.sort(f, Collections.reverseOrder());
-            int[] fps = new int[f.size()];
-            for (int k = 0; k < fps.length; k++) fps[k] = f.get(k);
-            out.add(new UvcMode(fourcc, w, h, fps));
+            // one selectable mode per frame rate: 640×480 @30 and @5 are different choices
+            if (f.isEmpty()) out.add(new UvcMode(fourcc, w, h, new int[0]));
+            for (int v : f) out.add(new UvcMode(fourcc, w, h, new int[]{ v }));
         }
         return out;
     }
