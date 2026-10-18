@@ -166,6 +166,15 @@ public class UvcCamera {
 
     private native void nativeInit();
     private native boolean nativeOpen(int fd);
+    private native int[] nativeGetCtrl(int which);
+    private native boolean nativeSetCtrl(int which, int value);
+
+    public static final int CTRL_BRIGHTNESS = 0, CTRL_CONTRAST = 1;
+
+    /** {min, max, def, cur} of a hardware control, or null if the camera has none. */
+    public int[] getCtrl(int which) { return nativeGetCtrl(which); }
+
+    public boolean setCtrl(int which, int value) { return nativeSetCtrl(which, value); }
     private native int[] nativeGetModes();
     private native boolean nativeStart(int fourcc, int w, int h, int fps, ByteBuffer bufA, ByteBuffer bufB);
     private native void nativeStop();

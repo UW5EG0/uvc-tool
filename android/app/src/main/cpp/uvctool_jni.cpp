@@ -317,3 +317,35 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeDeinit(JNIEnv *env, jobject) {
     frame_bufs[0] = frame_bufs[1] = NULL;
     LOGI("nativeDeinit done");
 }
+
+// ---------------------------------------------------------------------- image controls
+// which: 0 = brightness (int16), 1 = contrast (uint16). Returns {min, max, def, cur}
+// or null when the camera does not have the control.
+extern "C" JNIEXPORT jintArray JNICALL
+Java_ua_radiomaniac_uvctool_UvcCamera_nativeGetCtrl(JNIEnv *env, jobject, jint which) {
+    if (!devh) return NULL;
+    jint v[4];
+    const uvc_req_code reqs[4] = { UVC_GET_MIN, UVC_GET_MAX, UVC_GET_DEF, UVC_GET_CUR };
+    for (int i = 0; i < 4; i++) {
+        uvc_error_t r;
+        if (which == 0) { int16_t x = 0; r = uvc_get_brightness(devh, &x, reqs[i]); v[i] = x; }
+        else            { uint16_t x = 0; r = uvc_get_contrast(devh, &x, reqs[i]); v[i] = x; }
+        if (r != UVC_SUCCESS) {
+            LOGI("ctrl %d: not available (%s)", which, uvc_strerror(r));
+            return NULL;
+        }
+    }
+    LOGI("ctrl %d: min=%d max=%d def=%d cur=%d", which, v[0], v[1], v[2], v[3]);
+    if (v[1] <= v[0]) return NULL;
+    jintArray a = env->NewIntArray(4);
+    env->SetIntArrayRegion(a, 0, 4, v);
+    return a;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_ua_radiomaniac_uvctool_UvcCamera_nativeSetCtrl(JNIEnv *, jobject, jint which, jint value) {
+    if (!devh) return JNI_FALSE;
+    uvc_error_t r = which == 0 ? uvc_set_brightness(devh, (int16_t)value)
+                               : uvc_set_contrast(devh, (uint16_t)value);
+    return r == UVC_SUCCESS ? JNI_TRUE : JNI_FALSE;
+}

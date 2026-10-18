@@ -13,6 +13,8 @@ uniform vec3  u_wbGain;     // white balance multipliers (R, G, B)
 uniform float u_gamma;      // 1.0 = linear
 uniform sampler2D u_lut;    // 256x1 false-colour palette
 uniform bool  u_palette;    // map brightness through u_lut
+uniform float u_bright;     // software brightness, -0.5 .. +0.5 (0 = off)
+uniform float u_contrast;   // software contrast, 0.5 .. 2.0 (1 = off)
 
 varying vec2 v_texCoord;    // (0,0) top-left .. (1,1) bottom-right of the quad
 
@@ -59,10 +61,12 @@ void main() {
     if (u_palette) {
         // brightness only (thermal / mono): full-range luma -> palette colour
         float l = clamp((y - 16.0 / 255.0) * (255.0 / 219.0), 0.0, 1.0);
+        l = clamp((l - 0.5) * u_contrast + 0.5 + u_bright, 0.0, 1.0);
         rgb = texture2D(u_lut, vec2(l * (255.0 / 256.0) + 0.5 / 256.0, 0.5)).rgb;
     } else {
         rgb = yuv2rgb(y, t.g, t.a);
         rgb = clamp(rgb * u_wbGain, 0.0, 1.0);
+        rgb = clamp((rgb - 0.5) * u_contrast + 0.5 + u_bright, 0.0, 1.0);
     }
     if (u_gamma != 1.0) rgb = pow(rgb, vec3(1.0 / u_gamma));
 

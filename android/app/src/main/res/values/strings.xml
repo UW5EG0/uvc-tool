@@ -76,7 +76,7 @@
     <string name="mirror_v">Вертикально</string>
     <string name="mirror_hv">Обидва</string>
     <string name="menu_rotate">Повернути на 90° (зараз %1$d°)</string>
-    <string name="menu_wb">Баланс білого</string>
+    <string name="menu_wb">Картинка: тепло, яскравість, контраст</string>
     <string name="menu_palette">Палітра (теплак)</string>
     <string name="pal_none">Звичайні кольори</string>
     <string name="pal_white">Ч/Б: біле — гаряче</string>
@@ -84,4 +84,5 @@
     <string name="pal_iron">Залізо (ironbow)</string>
     <string name="pal_rainbow">Райдуга</string>
     <string name="menu_crop_top">Лише верхня половина кадру (теплак)</string>
+    <string name="toast_image_reset">Налаштування картинки скинуто</string>
 </resources>

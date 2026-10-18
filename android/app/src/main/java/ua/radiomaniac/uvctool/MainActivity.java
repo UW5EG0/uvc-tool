@@ -295,6 +295,7 @@ public class MainActivity extends AppCompatActivity {
         overlay.findViewById(R.id.btn_connect).setOnClickListener(v -> connectCamera());
 
 
+        setupImageSliders(overlay);
         SeekBar sbWarmth = overlay.findViewById(R.id.sb_warmth);
         sbWarmth.setProgress(prefs.getInt(KEY_WARMTH, 50));
         sbWarmth.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
@@ -542,6 +543,7 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "camera.start=" + ok);
         if (ok) {
             currentDevice = device;
+            bindImageControls();
             // Thermal cameras (e.g. 256x384: picture on top, raw temperatures below)
             // start with the bottom half hidden; the choice is remembered per camera.
             boolean thermalLike = mode.width == 256 && mode.height == 384;
@@ -955,6 +957,76 @@ public class MainActivity extends AppCompatActivity {
                    u[2] = Math.max(u[2], r[2]); u[3] = Math.max(u[3], r[3]); }
         }
         return u;
+    }
+
+    // ------------------------------------------------------------------ brightness / contrast
+
+    private SeekBar sbBright, sbContrast;
+    /** Hardware ranges {min, max, def, cur} or null -> software in the shader. */
+    private int[] hwBright, hwContrast;
+    private static final String KEY_SW_BRIGHT = "sw_bright", KEY_SW_CONTRAST = "sw_contrast";
+
+    private void setupImageSliders(View overlay) {
+        sbBright = overlay.findViewById(R.id.sb_brightness);
+        sbContrast = overlay.findViewById(R.id.sb_contrast);
+        SeekBar.OnSeekBarChangeListener l = new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
+                if (fromUser) applyImageSlider(sb == sbBright ? 0 : 1, p);
+            }
+            @Override public void onStartTrackingTouch(SeekBar sb) {}
+            @Override public void onStopTrackingTouch(SeekBar sb) {
+                if ((sb == sbBright ? hwBright : hwContrast) == null)
+                    prefs.edit().putInt(sb == sbBright ? KEY_SW_BRIGHT : KEY_SW_CONTRAST, sb.getProgress()).apply();
+            }
+        };
+        sbBright.setOnSeekBarChangeListener(l);
+        sbContrast.setOnSeekBarChangeListener(l);
+        // long press on the panel: back to defaults
+        panelWb.setOnLongClickListener(v -> { resetImageControls(); return true; });
+        bindImageControls();
+    }
+
+    /** After (re)opening a camera: hardware controls if it has them, else the shader. */
+    private void bindImageControls() {
+        hwBright = cameraOpen ? camera.getCtrl(UvcCamera.CTRL_BRIGHTNESS) : null;
+        hwContrast = cameraOpen ? camera.getCtrl(UvcCamera.CTRL_CONTRAST) : null;
+        Log.i(TAG, "image controls: brightness " + (hwBright != null ? "camera" : "software")
+                + ", contrast " + (hwContrast != null ? "camera" : "software"));
+        sbBright.setProgress(hwBright != null ? toPercent(hwBright, hwBright[3]) : prefs.getInt(KEY_SW_BRIGHT, 50));
+        sbContrast.setProgress(hwContrast != null ? toPercent(hwContrast, hwContrast[3]) : prefs.getInt(KEY_SW_CONTRAST, 50));
+        applyImageSlider(0, sbBright.getProgress());
+        applyImageSlider(1, sbContrast.getProgress());
+    }
+
+    private void applyImageSlider(int which, int p) {
+        int[] hw = which == 0 ? hwBright : hwContrast;
+        if (hw != null) {
+            int v = hw[0] + Math.round((hw[1] - hw[0]) * p / 100f);
+            camera.setCtrl(which, v);
+            if (which == 0) renderer.swBright = 0f; else renderer.swContrast = 1f;
+        } else if (which == 0) {
+            renderer.swBright = (p - 50) / 100f;                       // -0.5 .. +0.5
+        } else {
+            renderer.swContrast = (float) Math.pow(2.0, (p - 50) / 50.0); // 0.5 .. 2
+        }
+        glView.requestRender();
+    }
+
+    private static int toPercent(int[] hw, int v) {
+        return Math.round(100f * (v - hw[0]) / (hw[1] - hw[0]));
+    }
+
+    private void resetImageControls() {
+        sbBright.setProgress(hwBright != null ? toPercent(hwBright, hwBright[2]) : 50);
+        sbContrast.setProgress(hwContrast != null ? toPercent(hwContrast, hwContrast[2]) : 50);
+        applyImageSlider(0, sbBright.getProgress());
+        applyImageSlider(1, sbContrast.getProgress());
+        prefs.edit().putInt(KEY_SW_BRIGHT, 50).putInt(KEY_SW_CONTRAST, 50).putInt(KEY_WARMTH, 50).apply();
+        SeekBar w = overlayRoot.findViewById(R.id.sb_warmth);
+        w.setProgress(50);
+        applyWarmth(50);
+        glView.requestRender();
+        Toast.makeText(this, R.string.toast_image_reset, Toast.LENGTH_SHORT).show();
     }
 
     private void rotate90() {

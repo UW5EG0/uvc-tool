@@ -120,36 +120,96 @@
         android:layout_marginHorizontal="24dp"
         android:layout_marginBottom="8dp"
         android:background="@drawable/bg_panel"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="14dp"
-        android:paddingVertical="6dp"
+        android:orientation="vertical"
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="4dp"
         android:visibility="gone"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintBottom_toTopOf="@id/panel_controls">
-
-        <TextView
-            android:layout_width="wrap_content"
+        <!-- Picture adjustments: warmth (shader), brightness and contrast (camera if it
+             has the controls, otherwise in the shader). Long-press the panel = reset. -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"
-            android:text="❄" />
-
-        <SeekBar
-            android:id="@+id/sb_warmth"
-            android:layout_width="0dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:text="❄" />
+            <SeekBar
+                android:id="@+id/sb_warmth"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="50" />
+            <TextView
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:text="☀" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:max="100"
-            android:progress="50" />
-
-        <TextView
-            android:layout_width="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:text="☾" />
+            <SeekBar
+                android:id="@+id/sb_brightness"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="50" />
+            <TextView
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:text="☼" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="@color/text_secondary"
-            android:textSize="12sp"
-            android:text="☀" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <TextView
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:text="◐" />
+            <SeekBar
+                android:id="@+id/sb_contrast"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100"
+                android:progress="50" />
+            <TextView
+                android:layout_width="28dp"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:text="◑" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Control panel: Photo/Video toggle / [Shutter] / Gallery. Everything else is in the menu (top right). -->
