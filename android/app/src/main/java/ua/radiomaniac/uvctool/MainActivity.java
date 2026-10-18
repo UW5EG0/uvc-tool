@@ -1075,13 +1075,7 @@ public class MainActivity extends AppCompatActivity {
     /** Number next to the slider: offset from neutral, contrast as a factor, or the camera's own value. */
     private void showAdjValue() {
         if (adjValueText == null) return;
-        int p = adjValue[adjSel];
-        int[] hw = adjSel == ADJ_BRIGHT ? hwBright : adjSel == ADJ_CONTRAST ? hwContrast : null;
-        String t;
-        if (hw != null) t = String.valueOf(hw[0] + Math.round((hw[1] - hw[0]) * p / 100f));
-        else if (adjSel == ADJ_CONTRAST) t = String.format(Locale.US, "×%.2f", Math.pow(2.0, (p - 50) / 50.0));
-        else t = String.format(Locale.US, "%+d", p - 50);
-        adjValueText.setText(t);
+        adjValueText.setText(String.format(Locale.US, "%+d", adjValue[adjSel] - 50));   // relative, 0 = neutral
     }
 
     /** After (re)opening a camera: hardware controls if it has them, else the shader. */
@@ -1090,8 +1084,9 @@ public class MainActivity extends AppCompatActivity {
         hwContrast = cameraOpen ? camera.getCtrl(UvcCamera.CTRL_CONTRAST) : null;
         Log.i(TAG, "image controls: brightness " + (hwBright != null ? "camera" : "software")
                 + ", contrast " + (hwContrast != null ? "camera" : "software"));
-        adjValue[ADJ_BRIGHT] = hwBright != null ? toPercent(hwBright, hwBright[3]) : prefs.getInt(KEY_SW_BRIGHT, 50);
-        adjValue[ADJ_CONTRAST] = hwContrast != null ? toPercent(hwContrast, hwContrast[3]) : prefs.getInt(KEY_SW_CONTRAST, 50);
+        // every slider is relative: 50 = neutral (camera default / no change)
+        adjValue[ADJ_BRIGHT] = prefs.getInt(KEY_SW_BRIGHT, 50);
+        adjValue[ADJ_CONTRAST] = prefs.getInt(KEY_SW_CONTRAST, 50);
         for (int i = 0; i < 3; i++) applyAdj(i, adjValue[i]);
         if (sbAdjust != null) { sbAdjust.setProgress(adjValue[adjSel]); showAdjValue(); }
     }
@@ -1102,23 +1097,34 @@ public class MainActivity extends AppCompatActivity {
         } else {
             int[] hw = which == ADJ_BRIGHT ? hwBright : hwContrast;
             int ctrl = which == ADJ_BRIGHT ? UvcCamera.CTRL_BRIGHTNESS : UvcCamera.CTRL_CONTRAST;
+            // Relative scale, 50 = neutral. Upper half: camera default -> camera max.
+            // Lower half: camera min -> default, but many cameras report min == default
+            // (the endoscope: 128..255, default 128); then the lower half is done in the
+            // shader instead, so the whole slider always does something.
+            float sw = 0f;                                          // -1 .. +1 software part
             if (hw != null) {
-                camera.setCtrl(ctrl, hw[0] + Math.round((hw[1] - hw[0]) * p / 100f));
-                if (which == ADJ_BRIGHT) renderer.swBright = 0f; else renderer.swContrast = 1f;
-            } else if (which == ADJ_BRIGHT) {
-                renderer.swBright = (p - 50) / 100f;                        // -0.5 .. +0.5
+                // the endoscope even reports brightness min=181 max=255 default=128:
+                // neutral is the camera's default as-is, whatever range it claims
+                int min = hw[0], max = hw[1], def = hw[2];
+                int step = Math.max(1, (max - min) / 10);
+                boolean hwAbove = max - def >= step, hwBelow = def - min >= step;
+                int v = def;
+                if (p >= 50) { if (hwAbove) v = def + Math.round((max - def) * (p - 50) / 50f); else sw = (p - 50) / 50f; }
+                else         { if (hwBelow) v = min + Math.round((def - min) * p / 50f);       else sw = (p - 50) / 50f; }
+                camera.setCtrl(ctrl, v);
             } else {
-                renderer.swContrast = (float) Math.pow(2.0, (p - 50) / 50.0); // 0.5 .. 2
+                sw = (p - 50) / 50f;
             }
+            if (which == ADJ_BRIGHT) renderer.swBright = sw * 0.5f;              // -0.5 .. +0.5
+            else renderer.swContrast = (float) Math.pow(2.0, sw);                // 0.5 .. 2
         }
         glView.requestRender();
     }
 
     private void saveAdj() {
-        SharedPreferences.Editor e = prefs.edit().putInt(KEY_WARMTH, adjValue[ADJ_WARMTH]);
-        if (hwBright == null) e.putInt(KEY_SW_BRIGHT, adjValue[ADJ_BRIGHT]);
-        if (hwContrast == null) e.putInt(KEY_SW_CONTRAST, adjValue[ADJ_CONTRAST]);
-        e.apply();
+        prefs.edit().putInt(KEY_WARMTH, adjValue[ADJ_WARMTH])
+                .putInt(KEY_SW_BRIGHT, adjValue[ADJ_BRIGHT])
+                .putInt(KEY_SW_CONTRAST, adjValue[ADJ_CONTRAST]).apply();
     }
 
     private static int toPercent(int[] hw, int v) {
@@ -1127,8 +1133,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void resetImageControls() {
         adjValue[ADJ_WARMTH] = 50;
-        adjValue[ADJ_BRIGHT] = hwBright != null ? toPercent(hwBright, hwBright[2]) : 50;
-        adjValue[ADJ_CONTRAST] = hwContrast != null ? toPercent(hwContrast, hwContrast[2]) : 50;
+        adjValue[ADJ_BRIGHT] = 50;
+        adjValue[ADJ_CONTRAST] = 50;
         for (int i = 0; i < 3; i++) applyAdj(i, adjValue[i]);
         sbAdjust.setProgress(adjValue[adjSel]);
         showAdjValue();
