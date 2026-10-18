@@ -100,6 +100,8 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private boolean streaming = false;
+    private long lastGlitchRestart = 0;
+    private int glitchRestarts = 0;
     private UsbDevice currentDevice;      // camera of the open session
     private boolean cameraOpen = false;   // native session is open (streaming or starting)
     private boolean resumed = false;      // false while a system dialog sits on top of us
@@ -396,6 +398,22 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         camera.setButtonListener(this::onShutter);       // cable button = shutter
+        // Green/purple picture (stream one byte off): restart the stream with the
+        // same mode. Not while recording (it would cut the file); at most every 5 s.
+        camera.setGlitchListener(kind -> {
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (recording || !cameraOpen || now - lastGlitchRestart < 5000) {
+                Log.w(TAG, "glitch: restart skipped (recording=" + recording + ")");
+                return;
+            }
+            lastGlitchRestart = now;
+            glitchRestarts++;
+            UvcMode m = camera.getMode();
+            Log.w(TAG, "glitch: restarting stream (#" + glitchRestarts + ") " + (m != null ? m.label() : ""));
+            camera.stop();
+            streaming = false;
+            if (m == null || !camera.start(m)) setStatus("Камера не перезапустилась — див. лог", R.color.text_error);
+        });
         camera.setErrorListener((stage, message) -> {
             Log.e(TAG, "camera error [" + stage + "]: " + message);
             runOnUiThread(() -> {

@@ -25,6 +25,20 @@ public class UvcCamera {
         void onButtonPress();
     }
 
+    public interface GlitchListener {
+        /** kind 1 = luma/chroma swapped (green/purple picture). Main thread. */
+        void onGlitch(int kind);
+    }
+
+    private GlitchListener glitchListener;
+    public void setGlitchListener(GlitchListener l) { glitchListener = l; }
+
+    // Called from JNI (frame thread)
+    private void onGlitch(int kind) {
+        Log.w(TAG, "stream glitch kind=" + kind);
+        if (glitchListener != null) mainHandler.post(() -> glitchListener.onGlitch(kind));
+    }
+
     public interface ErrorListener {
         void onError(String stage, String message);
     }

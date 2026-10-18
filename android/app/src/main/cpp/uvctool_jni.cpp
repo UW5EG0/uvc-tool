@@ -24,6 +24,8 @@ static JavaVM   *jvm            = NULL;
 static jobject   j_camera_obj   = NULL;  // global ref to UvcCamera instance
 static jmethodID j_on_frame     = NULL;
 static jmethodID j_on_button    = NULL;
+static jmethodID j_on_glitch    = NULL;
+static int       glitch_streak  = 0;
 
 extern "C" JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *) {
     jvm = vm;
@@ -37,6 +39,7 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeInit(JNIEnv *env, jobject thiz) {
     jclass cls = env->GetObjectClass(thiz);
     j_on_frame  = env->GetMethodID(cls, "onFrame",  "(III)V");
     j_on_button = env->GetMethodID(cls, "onButton", "(I)V");
+    j_on_glitch = env->GetMethodID(cls, "onGlitch", "(I)V");
 
     // Clean up any previous state before reinitializing
     if (devh) {
@@ -118,6 +121,34 @@ static void frame_cb(uvc_frame_t *frame, void *user_ptr) {
         LOGW("drop frame#%u: data_bytes=%zu expected=%zu (drops=%u)",
              frame->sequence, frame->data_bytes, expected, frame_drop_cnt);
         return;
+    }
+
+    // --- byte-order sanity check (green/purple picture) ---
+    // In YUYV, luma (even bytes) carries the fine detail while chroma (odd bytes)
+    // is smooth. If the stream lands one byte off, the roles swap: the picture
+    // turns green/magenta. Compare horizontal variation of both on a sample.
+    {
+        const uint8_t *d = (const uint8_t *)frame->data;
+        size_t stride = (expected / 2048) & ~(size_t)3;
+        if (stride < 8) stride = 8;
+        uint32_t dy = 0, dc = 0, cnt = 0;
+        for (size_t i = 0; i + 8 < expected; i += stride, cnt++) {
+            dy += abs((int)d[i]     - (int)d[i + 4]) + abs((int)d[i + 2] - (int)d[i + 6]);
+            dc += abs((int)d[i + 1] - (int)d[i + 5]) + abs((int)d[i + 3] - (int)d[i + 7]);
+        }
+        if (dy + dc > cnt * 4) {                       // enough texture to judge
+            if (dc > dy * 2) glitch_streak++; else glitch_streak = 0;
+        }
+        if ((frame->sequence % 300) == 0)
+            LOGI("frame check #%u: luma var %u, chroma var %u (n=%u)", frame->sequence, dy, dc, cnt);
+        if (glitch_streak == 8) {
+            LOGW("frame #%u: luma/chroma look swapped for 8 frames (y=%u c=%u) -> restart",
+                 frame->sequence, dy, dc);
+            JNIEnv *genv; bool gatt = false;
+            if (jvm->GetEnv((void**)&genv, JNI_VERSION_1_6) != JNI_OK) { jvm->AttachCurrentThread(&genv, NULL); gatt = true; }
+            if (j_on_glitch) genv->CallVoidMethod((jobject)user_ptr, j_on_glitch, (jint)1);
+            if (gatt) jvm->DetachCurrentThread();
+        }
     }
 
     int buf_idx = (int)(frame->sequence & 1u);
@@ -282,6 +313,7 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeStart(JNIEnv *env, jobject, jint fou
             reset_stream_alt();
             usleep(attempt == 1 ? 50000 : 300000);
             frame_drop_cnt = 0;
+            glitch_streak = 0;
             r = uvc_start_streaming(devh, &ctrl, frame_cb, j_camera_obj, 0);
             LOGI("attempt %d: uvc_start_streaming: %d (%s)", attempt, r, uvc_strerror(r));
             if (r == UVC_SUCCESS) { streaming = true; return JNI_TRUE; }
