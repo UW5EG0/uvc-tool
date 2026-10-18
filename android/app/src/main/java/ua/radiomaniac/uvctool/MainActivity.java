@@ -73,7 +73,7 @@ public class MainActivity extends AppCompatActivity {
     private ImageButton btnFlip, btnWb, btnRotate, btnShutter, btnMode;
     private boolean videoMode = false;            // shutter + cable button: photo or record
     private static final String KEY_VIDEO_MODE = "video_mode";
-    private final android.media.MediaActionSound sound = new android.media.MediaActionSound();
+    private final Beeper beeper = new Beeper();
     private ShapeableImageView btnGallery;
     private final ExecutorService bg = Executors.newSingleThreadExecutor();
 
@@ -129,9 +129,6 @@ public class MainActivity extends AppCompatActivity {
         setupCamera();
         setupUsb();
 
-        sound.load(android.media.MediaActionSound.SHUTTER_CLICK);
-        sound.load(android.media.MediaActionSound.START_VIDEO_RECORDING);
-        sound.load(android.media.MediaActionSound.STOP_VIDEO_RECORDING);
         photoSaver = new PhotoSaver(this);
         videoRecorder = new VideoRecorder(this);
 
@@ -191,7 +188,6 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         logPanel.stop();
         bg.shutdownNow();
-        sound.release();
         usbDeviceManager.unregister();
         camera.stop();
         camera.close();
@@ -664,7 +660,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void takePhoto() {
         if (!streaming) return;
-        sound.play(android.media.MediaActionSound.SHUTTER_CLICK);
+        beeper.photo();
         renderer.requestCapture((x, y, w, h) -> {
             boolean ok = photoSaver.captureFromGl(x, y, w, h);
             runOnUiThread(() -> {
@@ -686,7 +682,7 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 recording = true;
-                sound.play(android.media.MediaActionSound.START_VIDEO_RECORDING);
+                beeper.recStart();
                 updateShutter();
                 btnRotate.setEnabled(false);       // output size is fixed for the file
                 btnRotate.setAlpha(0.35f);
@@ -704,7 +700,7 @@ public class MainActivity extends AppCompatActivity {
         recording = false;
         uiHandler.removeCallbacks(recTick);
         tvRec.setVisibility(View.GONE);
-        sound.play(android.media.MediaActionSound.STOP_VIDEO_RECORDING);
+        beeper.recStop();
         updateShutter();
         btnRotate.setEnabled(true);
         btnRotate.setAlpha(1f);
