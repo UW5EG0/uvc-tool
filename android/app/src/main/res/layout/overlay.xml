@@ -129,6 +129,7 @@
         app:layout_constraintBottom_toTopOf="@id/panel_controls">
         <!-- Picture adjustments: pick what the single slider controls; ↺ resets all. -->
         <LinearLayout
+            android:id="@+id/adj_chips"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal">
@@ -188,6 +189,7 @@
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/adj_slider_row"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp"
@@ -201,7 +203,7 @@
                 android:textColor="@color/text_secondary"
                 android:textSize="14sp"
                 android:text="❄" />
-            <SeekBar
+            <ua.radiomaniac.uvctool.OrientableSeekBar
                 android:id="@+id/sb_adjust"
                 android:layout_width="0dp"
                 android:layout_height="52dp"

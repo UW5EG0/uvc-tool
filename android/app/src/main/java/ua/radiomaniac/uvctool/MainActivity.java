@@ -313,7 +313,8 @@ public class MainActivity extends AppCompatActivity {
         landscapeSet.clear(R.id.panel_wb, ConstraintSet.START);
         landscapeSet.clear(R.id.panel_wb, ConstraintSet.END);
         landscapeSet.clear(R.id.panel_wb, ConstraintSet.BOTTOM);
-        landscapeSet.constrainWidth(R.id.panel_wb, dp(370));
+        landscapeSet.constrainWidth(R.id.panel_wb, ConstraintSet.WRAP_CONTENT);
+        landscapeSet.constrainHeight(R.id.panel_wb, ConstraintSet.MATCH_CONSTRAINT);
         // pinned to the control column: right beside it, vertically centred on it
         landscapeSet.connect(R.id.panel_wb, ConstraintSet.END, R.id.panel_controls, ConstraintSet.START, dp(4));
         landscapeSet.connect(R.id.panel_wb, ConstraintSet.TOP, R.id.panel_controls, ConstraintSet.TOP, 0);
@@ -375,6 +376,7 @@ public class MainActivity extends AppCompatActivity {
             if (land) lp.topMargin = before; else lp.leftMargin = before;
             child.setLayoutParams(lp);
         }
+        layoutAdjustPanel(land);
         Log.i(TAG, String.format(Locale.US,
                 "panel: %s, axis %.1f mm, shutter %.1f mm, buttons %.1f mm (dpi %.0f, full needs %.1f mm)",
                 compact ? "compact" : "full", axisPx / mm, SHUTTER, btnMm, dpi, fullMm));
@@ -987,6 +989,57 @@ public class MainActivity extends AppCompatActivity {
         });
         bindImageControls();
         selectAdj(prefs.getInt(KEY_ADJ, ADJ_WARMTH));
+        layoutAdjustPanel(getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE);
+    }
+
+    /**
+     * Portrait: chips in a row above a horizontal slider. Landscape: chips in a
+     * column, and a vertical slider running along the control column.
+     */
+    private void layoutAdjustPanel(boolean land) {
+        android.widget.LinearLayout pw = (android.widget.LinearLayout) panelWb;
+        android.widget.LinearLayout chips = overlayRoot.findViewById(R.id.adj_chips);
+        android.widget.LinearLayout row = overlayRoot.findViewById(R.id.adj_slider_row);
+        if (pw == null || chips == null || row == null || sbAdjust == null) return;
+        final int W = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT;
+        final int M = android.widget.LinearLayout.LayoutParams.MATCH_PARENT;
+        pw.setOrientation(land ? android.widget.LinearLayout.HORIZONTAL : android.widget.LinearLayout.VERTICAL);
+        chips.setOrientation(land ? android.widget.LinearLayout.VERTICAL : android.widget.LinearLayout.HORIZONTAL);
+        chips.setLayoutParams(new android.widget.LinearLayout.LayoutParams(land ? W : M, land ? M : W));
+        chips.setGravity(android.view.Gravity.CENTER);
+        for (int i = 0; i < chips.getChildCount(); i++) {
+            View ch = chips.getChildAt(i);
+            boolean reset = ch.getId() == R.id.adj_reset;
+            android.widget.LinearLayout.LayoutParams lp = land
+                    ? new android.widget.LinearLayout.LayoutParams(dp(104), dp(46))
+                    : new android.widget.LinearLayout.LayoutParams(reset ? dp(50) : 0, dp(46), reset ? 0 : 1);
+            if (land) { lp.topMargin = lp.bottomMargin = dp(3); } else { lp.leftMargin = lp.rightMargin = dp(2); }
+            ch.setLayoutParams(lp);
+        }
+
+        View left = row.findViewById(R.id.adj_left), right = row.findViewById(R.id.adj_right),
+             value = row.findViewById(R.id.adj_value);
+        row.removeAllViews();
+        row.setOrientation(land ? android.widget.LinearLayout.VERTICAL : android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER);
+        android.widget.LinearLayout.LayoutParams rlp = new android.widget.LinearLayout.LayoutParams(land ? W : M, land ? M : W);
+        if (land) rlp.leftMargin = dp(6); else rlp.topMargin = dp(4);
+        row.setLayoutParams(rlp);
+        ((OrientableSeekBar) sbAdjust).setVertical(land);
+        if (land) {
+            // top = high end
+            row.addView(value, new android.widget.LinearLayout.LayoutParams(dp(56), W));
+            row.addView(right, new android.widget.LinearLayout.LayoutParams(dp(56), W));
+            row.addView(sbAdjust, new android.widget.LinearLayout.LayoutParams(dp(52), 0, 1));
+            row.addView(left, new android.widget.LinearLayout.LayoutParams(dp(56), W));
+            ((TextView) value).setGravity(android.view.Gravity.CENTER);
+        } else {
+            row.addView(left, new android.widget.LinearLayout.LayoutParams(dp(28), W));
+            row.addView(sbAdjust, new android.widget.LinearLayout.LayoutParams(0, dp(52), 1));
+            row.addView(right, new android.widget.LinearLayout.LayoutParams(dp(28), W));
+            row.addView(value, new android.widget.LinearLayout.LayoutParams(dp(52), W));
+            ((TextView) value).setGravity(android.view.Gravity.END | android.view.Gravity.CENTER_VERTICAL);
+        }
     }
 
     private void selectAdj(int k) {
