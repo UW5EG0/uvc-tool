@@ -30,6 +30,7 @@ public final class ReportBuilder {
         public List<UvcMode> modes;
         public String fps;
         public boolean streaming, recording, videoMode;
+        public String screen;
     }
 
     private ReportBuilder() {}
@@ -52,6 +53,7 @@ public final class ReportBuilder {
           .append(" [").append(Build.DEVICE).append("]\n");
         String miui = prop("ro.miui.ui.version.name");
         if (!miui.isEmpty()) sb.append("MIUI ").append(miui).append(' ').append(prop("ro.build.version.incremental")).append('\n');
+        if (cam != null && cam.screen != null) sb.append("Screen ").append(cam.screen).append('\n');
         sb.append("ABI ").append(Build.SUPPORTED_ABIS.length > 0 ? Build.SUPPORTED_ABIS[0] : "?").append('\n');
         sb.append("```\n\n");
 

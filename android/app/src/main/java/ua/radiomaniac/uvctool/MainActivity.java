@@ -6,6 +6,7 @@ import android.content.res.Configuration;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbManager;
 import android.opengl.GLSurfaceView;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -50,7 +51,8 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "UvcTool";
     private static final String PREFS = "uvc_prefs";
-    private static final String KEY_FLIP = "flip_x";
+    private static final String KEY_FLIP = "flip_x";            // legacy boolean (horizontal)
+    private static final String KEY_FLIP_MODE = "flip_mode";    // 0 off, 1 H, 2 V, 3 both
     private static final String KEY_ROTATION = "rotation";
     private static final String KEY_WARMTH = "warmth";
     private static final String KEY_LAST_CAMERA = "last_camera";     // "vvvv:pppp"
@@ -70,7 +72,8 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView tvStatus, tvFps, tvRec;
     private View groupNoCamera, panelWb;
-    private ImageButton btnFlip, btnWb, btnRotate, btnShutter, btnMode;
+    private ImageButton btnShutter, btnMode, btnLog;
+    private int flipMode = 0;
     private boolean videoMode = false;            // shutter + cable button: photo or record
     private static final String KEY_VIDEO_MODE = "video_mode";
     private final Beeper beeper = new Beeper();
@@ -161,6 +164,7 @@ public class MainActivity extends AppCompatActivity {
     public void onConfigurationChanged(Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         applyOrientation(newConfig.orientation);
+        overlayRoot.post(() -> Log.i(TAG, "screen: " + screenInfo()));
     }
 
     @Override
@@ -197,7 +201,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void setupVideo() {
         renderer = new YuyvRenderer(this);
-        renderer.flipX = prefs.getBoolean(KEY_FLIP, false);
+        flipMode = prefs.getInt(KEY_FLIP_MODE, prefs.getBoolean(KEY_FLIP, false) ? 1 : 0);
+        renderer.flipX = (flipMode & 1) != 0;
+        renderer.flipY = (flipMode & 2) != 0;
         renderer.rotation = prefs.getInt(KEY_ROTATION, 0);
         applyWarmth(prefs.getInt(KEY_WARMTH, 50));
 
@@ -220,48 +226,17 @@ public class MainActivity extends AppCompatActivity {
         tvFps         = overlay.findViewById(R.id.tv_fps);
         groupNoCamera = overlay.findViewById(R.id.group_no_camera);
         panelWb       = overlay.findViewById(R.id.panel_wb);
-        btnFlip       = overlay.findViewById(R.id.btn_flip);
-        btnWb         = overlay.findViewById(R.id.btn_wb);
         btnShutter    = overlay.findViewById(R.id.btn_photo);
         btnMode       = overlay.findViewById(R.id.btn_mode);
-        btnRotate     = overlay.findViewById(R.id.btn_rotate);
         tvRec         = overlay.findViewById(R.id.tv_rec);
         tvStatus.setOnClickListener(v -> showSourceSheet());
         btnGallery    = overlay.findViewById(R.id.btn_gallery);
-        btnGallery.setOnClickListener(v -> {
-            // leaving the screen would stop the recording (onStop); the button is
-            // disabled while recording, this is just a guard
-            if (recording) return;
-            startActivity(new Intent(this, GalleryActivity.class));
-        });
+        btnGallery.setOnClickListener(v -> openGallery());
 
         logPanel = new LogPanel(overlay.findViewById(R.id.panel_log), overlay.findViewById(R.id.tv_log));
         logPanel.start();
-        ImageButton btnLog = overlay.findViewById(R.id.btn_log);
-        // menu: log on/off, check for updates, report a problem, about
-        btnLog.setOnClickListener(v -> {
-            android.widget.PopupMenu pm = new android.widget.PopupMenu(this, btnLog);
-            android.view.Menu m = pm.getMenu();
-            m.add(0, 1, 0, R.string.menu_log).setCheckable(true).setChecked(logPanel.isShown());
-            if (Updater.enabled()) m.add(0, 2, 1, R.string.update_check);
-            m.add(0, 3, 2, R.string.menu_report);
-            m.add(0, 4, 3, R.string.cd_about);
-            pm.setOnMenuItemClickListener(item -> {
-                switch (item.getItemId()) {
-                    case 1: {
-                        boolean shown = logPanel.toggle();
-                        btnLog.setBackground(ContextCompat.getDrawable(this,
-                                shown ? R.drawable.bg_btn_active : R.drawable.bg_badge));
-                        return true;
-                    }
-                    case 2: UpdateUi.checkNow(this); return true;
-                    case 3: showReportDialog(); return true;
-                    case 4: UpdateUi.about(this); return true;
-                }
-                return false;
-            });
-            pm.show();
-        });
+        btnLog = overlay.findViewById(R.id.btn_log);
+        btnLog.setOnClickListener(v -> showMainMenu());
         btnLog.setOnLongClickListener(v -> {
             android.content.ClipboardManager cm =
                     (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
@@ -283,20 +258,8 @@ public class MainActivity extends AppCompatActivity {
             landscapeSet.setVisibilityMode(id, ConstraintSet.VISIBILITY_MODE_IGNORE);
         }
         applyOrientation(getResources().getConfiguration().orientation);
+        overlayRoot.post(() -> Log.i(TAG, "screen: " + screenInfo()));
 
-        updateFlipButton();
-        btnFlip.setOnClickListener(v -> {
-            renderer.flipX = !renderer.flipX;
-            prefs.edit().putBoolean(KEY_FLIP, renderer.flipX).apply();
-            updateFlipButton();
-            glView.requestRender();
-        });
-
-        btnRotate.setOnClickListener(v -> {
-            renderer.rotation = (renderer.rotation + 90) % 360;
-            prefs.edit().putInt(KEY_ROTATION, renderer.rotation).apply();
-            glView.requestRender();
-        });
 
         videoMode = prefs.getBoolean(KEY_VIDEO_MODE, false);
         updateShutter();
@@ -311,12 +274,6 @@ public class MainActivity extends AppCompatActivity {
         });
         overlay.findViewById(R.id.btn_connect).setOnClickListener(v -> connectCamera());
 
-        btnWb.setOnClickListener(v -> {
-            boolean show = panelWb.getVisibility() != View.VISIBLE;
-            panelWb.setVisibility(show ? View.VISIBLE : View.GONE);
-            btnWb.setBackground(ContextCompat.getDrawable(this,
-                    show ? R.drawable.bg_btn_active : R.drawable.bg_btn_round));
-        });
 
         SeekBar sbWarmth = overlay.findViewById(R.id.sb_warmth);
         sbWarmth.setProgress(prefs.getInt(KEY_WARMTH, 50));
@@ -354,11 +311,6 @@ public class MainActivity extends AppCompatActivity {
         landscapeSet.connect(R.id.btn_log, ConstraintSet.END, R.id.panel_controls, ConstraintSet.START, dp(8));
         landscapeSet.connect(R.id.panel_log, ConstraintSet.END, R.id.panel_controls, ConstraintSet.START, dp(8));
         landscapeSet.constrainPercentHeight(R.id.panel_log, 0.75f);
-
-        // gallery thumbnail: left of the control column, bottom, above the WB slider
-        landscapeSet.clear(R.id.btn_gallery, ConstraintSet.START);
-        landscapeSet.connect(R.id.btn_gallery, ConstraintSet.END, R.id.panel_controls, ConstraintSet.START, dp(8));
-        landscapeSet.connect(R.id.btn_gallery, ConstraintSet.BOTTOM, R.id.panel_wb, ConstraintSet.TOP, dp(8));
     }
 
     private void applyOrientation(int orientation) {
@@ -563,7 +515,8 @@ public class MainActivity extends AppCompatActivity {
 
     private String streamingStatus() {
         UvcMode m = camera.getMode();
-        return (m != null ? m.sizeName() + " " + m.formatName() : getString(R.string.status_streaming)) + "  ▾";
+        String mirror = flipMode == 1 ? "  ⇋" : flipMode == 2 ? "  ⇅" : flipMode == 3 ? "  ⇋⇅" : "";
+        return (m != null ? m.sizeName() + " " + m.formatName() : getString(R.string.status_streaming)) + mirror + "  ▾";
     }
 
     // ------------------------------------------------------------------ camera / mode picker
@@ -703,8 +656,6 @@ public class MainActivity extends AppCompatActivity {
                 recording = true;
                 beeper.recStart();
                 updateShutter();
-                btnRotate.setEnabled(false);       // output size is fixed for the file
-                btnRotate.setAlpha(0.35f);
                 btnGallery.setEnabled(false);      // leaving the screen ends the recording
                 btnGallery.setAlpha(0.35f);
                 tvRec.setText("● 00:00");
@@ -721,8 +672,6 @@ public class MainActivity extends AppCompatActivity {
         tvRec.setVisibility(View.GONE);
         beeper.recStop();
         updateShutter();
-        btnRotate.setEnabled(true);
-        btnRotate.setAlpha(1f);
         btnGallery.setEnabled(true);
         btnGallery.setAlpha(1f);
         glView.queueEvent(() -> {
@@ -800,6 +749,7 @@ public class MainActivity extends AppCompatActivity {
         cs.streaming = streaming;
         cs.recording = recording;
         cs.videoMode = videoMode;
+        cs.screen = screenInfo();
         String title = ReportBuilder.title(comment);
         String body = ReportBuilder.body(this, comment, cs, logPanel.snapshot());
         // the full text always goes to the clipboard: the GitHub URL may carry a shortened log
@@ -840,9 +790,86 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void updateFlipButton() {
-        btnFlip.setBackground(ContextCompat.getDrawable(this,
-                renderer.flipX ? R.drawable.bg_btn_active : R.drawable.bg_btn_round));
+    // ------------------------------------------------------------------ main menu (top right)
+
+    /**
+     * Everything except the shutter and the photo/video toggle lives here, so the
+     * bottom panel needs only three buttons and fits small phones.
+     */
+    private void showMainMenu() {
+        android.widget.PopupMenu pm = new android.widget.PopupMenu(this, btnLog);
+        android.view.Menu m = pm.getMenu();
+        m.add(0, 10, 0, R.string.menu_gallery).setEnabled(!recording);
+        android.view.SubMenu mirror = m.addSubMenu(0, 20, 1, R.string.menu_mirror);
+        int[] names = { R.string.mirror_off, R.string.mirror_h, R.string.mirror_v, R.string.mirror_hv };
+        for (int i = 0; i < 4; i++) mirror.add(1, 21 + i, i, names[i]).setChecked(flipMode == i);
+        mirror.setGroupCheckable(1, true, true);
+        m.add(0, 30, 2, getString(R.string.menu_rotate, renderer.rotation)).setEnabled(!recording);
+        m.add(0, 40, 3, R.string.menu_wb).setCheckable(true).setChecked(panelWb.getVisibility() == View.VISIBLE);
+        m.add(2, 1, 4, R.string.menu_log).setCheckable(true).setChecked(logPanel.isShown());
+        if (Updater.enabled()) m.add(2, 2, 5, R.string.update_check);
+        m.add(2, 3, 6, R.string.menu_report);
+        m.add(2, 4, 7, R.string.cd_about);
+        pm.setOnMenuItemClickListener(item -> {
+            int id = item.getItemId();
+            if (id >= 21 && id <= 24) { setFlipMode(id - 21); return true; }
+            switch (id) {
+                case 10: openGallery(); return true;
+                case 30:
+                    renderer.rotation = (renderer.rotation + 90) % 360;
+                    prefs.edit().putInt(KEY_ROTATION, renderer.rotation).apply();
+                    glView.requestRender();
+                    return true;
+                case 40:
+                    panelWb.setVisibility(panelWb.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                    return true;
+                case 1: {
+                    boolean shown = logPanel.toggle();
+                    btnLog.setBackground(ContextCompat.getDrawable(this,
+                            shown ? R.drawable.bg_btn_active : R.drawable.bg_badge));
+                    return true;
+                }
+                case 2: UpdateUi.checkNow(this); return true;
+                case 3: showReportDialog(); return true;
+                case 4: UpdateUi.about(this); return true;
+            }
+            return false;
+        });
+        pm.show();
+    }
+
+    private void setFlipMode(int mode) {
+        flipMode = mode;
+        renderer.flipX = (mode & 1) != 0;
+        renderer.flipY = (mode & 2) != 0;
+        prefs.edit().putInt(KEY_FLIP_MODE, mode).apply();
+        glView.requestRender();
+        if (streaming) setStatus(streamingStatus(), R.color.text_ok);
+    }
+
+    private void openGallery() {
+        // leaving the screen would stop the recording (onStop)
+        if (recording) return;
+        startActivity(new Intent(this, GalleryActivity.class));
+    }
+
+    /** Screen / viewport facts for the log and the problem report. */
+    String screenInfo() {
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        Configuration c = getResources().getConfiguration();
+        String phys = "?";
+        if (Build.VERSION.SDK_INT >= 30) {
+            android.graphics.Rect b = getWindowManager().getMaximumWindowMetrics().getBounds();
+            double in = Math.hypot(b.width() / (double) dm.xdpi, b.height() / (double) dm.ydpi);
+            phys = b.width() + "x" + b.height() + String.format(Locale.US, " (~%.1f\")", in);
+        }
+        View root = overlayRoot;
+        return String.format(Locale.US,
+                "display %s px, %d dpi (x%.0f y%.0f), density %.2f; window %dx%d dp, sw %ddp, %s; overlay %dx%d px",
+                phys, dm.densityDpi, dm.xdpi, dm.ydpi, dm.density,
+                c.screenWidthDp, c.screenHeightDp, c.smallestScreenWidthDp,
+                c.orientation == Configuration.ORIENTATION_LANDSCAPE ? "landscape" : "portrait",
+                root != null ? root.getWidth() : 0, root != null ? root.getHeight() : 0);
     }
 
     private void showNoCamera(boolean show) {

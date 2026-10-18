@@ -69,4 +69,12 @@
     <string name="report_share">Поділитися</string>
     <string name="report_opened">Звіт скопійовано в буфер. Перевір текст і натисни «Submit new issue».</string>
     <string name="report_copied">Звіт скопійовано в буфер обміну</string>
+    <string name="menu_gallery">Галерея</string>
+    <string name="menu_mirror">Дзеркало</string>
+    <string name="mirror_off">Вимкнено</string>
+    <string name="mirror_h">Горизонтально</string>
+    <string name="mirror_v">Вертикально</string>
+    <string name="mirror_hv">Обидва</string>
+    <string name="menu_rotate">Повернути на 90° (зараз %1$d°)</string>
+    <string name="menu_wb">Баланс білого</string>
 </resources>

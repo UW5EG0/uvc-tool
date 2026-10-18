@@ -59,6 +59,7 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
 
     // --- user-controlled view parameters (set from UI thread, read on GL thread) ---
     public volatile boolean flipX = false;
+    public volatile boolean flipY = false;
     public volatile int rotation = 0;              // 0 / 90 / 180 / 270
     public final float[] wbGain = {1f, 1f, 1f};    // R G B multipliers
     public volatile float gamma = 1.0f;
@@ -69,7 +70,7 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
     private int texW = 0, texH = 0;
 
     private int program, texture;
-    private int aPos, uTexture, uTexSize, uFlipX, uRotation, uWbGain, uGamma;
+    private int aPos, uTexture, uTexSize, uFlipX, uFlipY, uRotation, uWbGain, uGamma;
     private int surfaceW, surfaceH;
     private int vpX, vpY, vpW, vpH;
 
@@ -143,6 +144,7 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
         uTexture  = GLES20.glGetUniformLocation(program, "u_texture");
         uTexSize  = GLES20.glGetUniformLocation(program, "u_texSize");
         uFlipX    = GLES20.glGetUniformLocation(program, "u_flipX");
+        uFlipY    = GLES20.glGetUniformLocation(program, "u_flipY");
         uRotation = GLES20.glGetUniformLocation(program, "u_rotation");
         uWbGain   = GLES20.glGetUniformLocation(program, "u_wbGain");
         uGamma    = GLES20.glGetUniformLocation(program, "u_gamma");
@@ -167,6 +169,7 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
     public void onSurfaceChanged(GL10 gl, int width, int height) {
         surfaceW = width;
         surfaceH = height;
+        android.util.Log.i("UvcTool", "GL surface " + width + "x" + height);
     }
 
     @Override
@@ -228,6 +231,7 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
         GLES20.glUniform1i(uTexture, 0);
         GLES20.glUniform2f(uTexSize, texW, texH);
         GLES20.glUniform1i(uFlipX, flipX ? 1 : 0);
+        GLES20.glUniform1i(uFlipY, flipY ? 1 : 0);
         GLES20.glUniform1i(uRotation, rotation);
         GLES20.glUniform3f(uWbGain, wbGain[0], wbGain[1], wbGain[2]);
         GLES20.glUniform1f(uGamma, gamma);
