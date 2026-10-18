@@ -349,8 +349,9 @@ public class MainActivity extends AppCompatActivity {
         float dpi = land ? dm.ydpi : dm.xdpi;
         if (dpi < dm.densityDpi * 0.7f || dpi > dm.densityDpi * 1.3f) dpi = dm.densityDpi;  // bogus xdpi/ydpi
         float mm = dpi / 25.4f;                                     // px per mm
-        float axisPx = (land ? c.screenHeightDp : c.screenWidthDp) * dm.density - dp(16);
-        final float SHUTTER = 12f, BTN = 8f, BTN_MIN = 7f, GAP = 2.5f, GAP_SHUTTER = 3f, PAD = 3f;
+        // panel margin is 6dp on each side (overlay.xml)
+        float axisPx = (land ? c.screenHeightDp : c.screenWidthDp) * dm.density - dp(12);
+        final float SHUTTER = 12f, BTN = 8f, BTN_MIN = 7f, GAP = 2f, GAP_SHUTTER = 2.5f, PAD = 2.5f;
         float fullMm = 2 * PAD + SHUTTER + 4 * BTN + 2 * GAP + 2 * GAP_SHUTTER;
         boolean compact = fullMm * mm > axisPx;
         float btnMm = BTN;
@@ -367,7 +368,7 @@ public class MainActivity extends AppCompatActivity {
         btnFlip.setVisibility(compact ? View.GONE : View.VISIBLE);
         btnRotate.setVisibility(compact ? View.GONE : View.VISIBLE);
 
-        int pad = Math.round(PAD * mm), across = Math.round(2f * mm);
+        int pad = Math.round(PAD * mm), across = Math.round(1.5f * mm);
         if (land) panel.setPadding(across, pad, across, pad); else panel.setPadding(pad, across, pad, across);
         for (int i = 0; i < panel.getChildCount(); i++) {
             View child = panel.getChildAt(i);
