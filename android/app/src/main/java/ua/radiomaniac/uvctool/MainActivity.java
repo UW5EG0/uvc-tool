@@ -976,6 +976,8 @@ public class MainActivity extends AppCompatActivity {
                 overlay.findViewById(R.id.adj_bright), overlay.findViewById(R.id.adj_contrast) };
         for (int i = 0; i < 3; i++) { final int k = i; adjChips[i].setOnClickListener(v -> selectAdj(k)); }
         overlay.findViewById(R.id.adj_reset).setOnClickListener(v -> resetImageControls());
+        overlay.findViewById(R.id.adj_reset_v).setOnClickListener(v -> resetImageControls());
+        overlay.findViewById(R.id.adj_cycle).setOnClickListener(v -> selectAdj((adjSel + 1) % 3));
         adjValue[ADJ_WARMTH] = prefs.getInt(KEY_WARMTH, 50);
         sbAdjust.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar sb, int p, boolean fromUser) {
@@ -1018,22 +1020,31 @@ public class MainActivity extends AppCompatActivity {
         }
 
         View left = row.findViewById(R.id.adj_left), right = row.findViewById(R.id.adj_right),
-             value = row.findViewById(R.id.adj_value);
+             value = row.findViewById(R.id.adj_value),
+             resetV = row.findViewById(R.id.adj_reset_v), cycle = row.findViewById(R.id.adj_cycle);
+        // landscape: no chip column, the narrow slider column carries everything
+        chips.setVisibility(land ? View.GONE : View.VISIBLE);
+        resetV.setVisibility(land ? View.VISIBLE : View.GONE);
+        cycle.setVisibility(land ? View.VISIBLE : View.GONE);
         row.removeAllViews();
         row.setOrientation(land ? android.widget.LinearLayout.VERTICAL : android.widget.LinearLayout.HORIZONTAL);
         row.setGravity(android.view.Gravity.CENTER);
         android.widget.LinearLayout.LayoutParams rlp = new android.widget.LinearLayout.LayoutParams(land ? W : M, land ? M : W);
-        if (land) rlp.leftMargin = dp(6); else rlp.topMargin = dp(4);
+        if (!land) rlp.topMargin = dp(4);
         row.setLayoutParams(rlp);
         ((OrientableSeekBar) sbAdjust).setVertical(land);
         if (land) {
-            // top = high end
+            // top: reset, value, high end ... slider ... low end, parameter switch
+            row.addView(resetV, new android.widget.LinearLayout.LayoutParams(dp(44), dp(44)));
             row.addView(value, new android.widget.LinearLayout.LayoutParams(dp(56), W));
             row.addView(right, new android.widget.LinearLayout.LayoutParams(dp(56), W));
             row.addView(sbAdjust, new android.widget.LinearLayout.LayoutParams(dp(52), 0, 1));
             row.addView(left, new android.widget.LinearLayout.LayoutParams(dp(56), W));
+            row.addView(cycle, new android.widget.LinearLayout.LayoutParams(dp(44), dp(44)));
             ((TextView) value).setGravity(android.view.Gravity.CENTER);
         } else {
+            row.addView(resetV);      // gone in portrait, kept in the tree
+            row.addView(cycle);
             row.addView(left, new android.widget.LinearLayout.LayoutParams(dp(28), W));
             row.addView(sbAdjust, new android.widget.LinearLayout.LayoutParams(0, dp(52), 1));
             row.addView(right, new android.widget.LinearLayout.LayoutParams(dp(28), W));
@@ -1050,6 +1061,11 @@ public class MainActivity extends AppCompatActivity {
                     i == k ? R.drawable.bg_btn_active : R.drawable.bg_badge));
         }
         String[][] icons = { {"❄", "☀"}, {"☾", "☼"}, {"◐", "◑"} };
+        ImageButton cyc = overlayRoot.findViewById(R.id.adj_cycle);
+        if (cyc != null) {
+            int[] ic = { R.drawable.ic_adj_warmth, R.drawable.ic_adj_bright, R.drawable.ic_adj_contrast };
+            cyc.setImageResource(ic[k]);
+        }
         adjLeft.setText(icons[k][0]);
         adjRight.setText(icons[k][1]);
         sbAdjust.setProgress(adjValue[k]);

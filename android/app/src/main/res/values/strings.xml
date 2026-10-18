@@ -86,4 +86,5 @@
     <string name="menu_crop_top">Лише верхня половина кадру (теплак)</string>
     <string name="toast_image_reset">Налаштування картинки скинуто</string>
     <string name="cd_reset">Скинути</string>
+    <string name="cd_adj_cycle">Що регулювати: тепло / яскравість / контраст</string>
 </resources>

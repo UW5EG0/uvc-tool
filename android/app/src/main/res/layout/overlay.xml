@@ -195,6 +195,23 @@
             android:layout_marginTop="4dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+            <!-- landscape only (vertical slider): reset on top, parameter switch at the bottom -->
+            <ImageButton
+                android:id="@+id/adj_reset_v"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_btn_round"
+                android:src="@drawable/ic_adj_reset"
+                android:contentDescription="@string/cd_reset"
+                android:visibility="gone" />
+            <ImageButton
+                android:id="@+id/adj_cycle"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="@drawable/bg_btn_active"
+                android:src="@drawable/ic_adj_warmth"
+                android:contentDescription="@string/cd_adj_cycle"
+                android:visibility="gone" />
             <TextView
                 android:id="@+id/adj_left"
                 android:layout_width="28dp"
