@@ -1105,7 +1105,13 @@ public class MainActivity extends AppCompatActivity {
         // every slider is relative: 50 = neutral (camera default / no change)
         adjValue[ADJ_BRIGHT] = prefs.getInt(KEY_SW_BRIGHT, 50);
         adjValue[ADJ_CONTRAST] = prefs.getInt(KEY_SW_CONTRAST, 50);
-        for (int i = 0; i < 3; i++) applyAdj(i, adjValue[i]);
+        // Do not touch the camera's own controls unless the user moved them away from 0:
+        // a cheap camera's image pipeline is best left exactly as it powers up.
+        applyAdj(ADJ_WARMTH, adjValue[ADJ_WARMTH]);
+        for (int i = ADJ_BRIGHT; i <= ADJ_CONTRAST; i++) {
+            if (adjValue[i] != 50) applyAdj(i, adjValue[i]);
+            else if (i == ADJ_BRIGHT) renderer.swBright = 0f; else renderer.swContrast = 1f;
+        }
         if (sbAdjust != null) { sbAdjust.setProgress(adjValue[adjSel]); showAdjValue(); }
     }
 
