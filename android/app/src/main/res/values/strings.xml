@@ -52,4 +52,10 @@
     <string name="update_open_settings">Відкрити налаштування</string>
     <string name="update_banner">Доступна версія %1$s</string>
     <string name="about_html"><![CDATA[Версія %1$s<br><br>Перегляд, фото і запис з USB-ендоскопів (UVC).<br><br>Код: <a href="%2$s">%2$s</a><br><br>Ліцензія MIT. Використовує libusb (LGPL-2.1) і libuvc (BSD). Застосунок звертається в інтернет лише до GitHub, щоб перевірити оновлення.]]></string>
+    <string name="picker_title">Оберіть камеру</string>
+    <string name="mode_unsupported">поки не підтримується</string>
+    <string name="mode_unsupported_toast">Цей формат поки не підтримується — працюють лише режими YUYV. MJPEG буде в наступних версіях.</string>
+    <string name="status_no_supported_mode">Камера не має режимів YUYV — поки не підтримується</string>
+    <string name="toast_camera_added">Підключено ще камеру: %1$s. Перемкнути — тап по статусу вгорі.</string>
+    <string name="toast_stop_rec_first">Спочатку зупиніть запис</string>
 </resources>

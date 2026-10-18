@@ -10,18 +10,22 @@ import android.hardware.usb.UsbManager;
 import android.os.Build;
 import android.util.Log;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 
 public class UsbDeviceManager {
 
     private static final String TAG = "UvcTool";
     private static final String ACTION_USB_PERMISSION = "ua.radiomaniac.uvctool.USB_PERMISSION";
-    private static final int TARGET_VID = 0x349c;
-    private static final int TARGET_PID = 0x0411;
+    /** USB class 14 = video. A UVC camera has a VideoControl (sub 1) and VideoStreaming (sub 2) interface. */
+    private static final int USB_CLASS_VIDEO = 14;
 
     public interface Listener {
         void onDeviceAttached(UsbDevice device);
-        void onDeviceDetached();
+        void onDeviceDetached(UsbDevice device);
         void onPermissionGranted(UsbDevice device);
         void onPermissionDenied();
     }
@@ -48,8 +52,8 @@ public class UsbDeviceManager {
                 case UsbManager.ACTION_USB_DEVICE_DETACHED: {
                     UsbDevice device = getParcelableDevice(intent);
                     if (device != null && isTarget(device)) {
-                        Log.d(TAG, "USB detached");
-                        if (listener != null) listener.onDeviceDetached();
+                        Log.d(TAG, "USB detached: " + device.getDeviceName());
+                        if (listener != null) listener.onDeviceDetached(device);
                     }
                     break;
                 }
@@ -115,13 +119,43 @@ public class UsbDeviceManager {
         try { context.unregisterReceiver(permissionReceiver); } catch (IllegalArgumentException ignored) {}
     }
 
-    public UsbDevice findDevice() {
-        if (usbManager == null) return null;
+    /** All connected UVC cameras (directly or behind a hub), stable order. */
+    public List<UsbDevice> findDevices() {
+        List<UsbDevice> out = new ArrayList<>();
+        if (usbManager == null) return out;
         HashMap<String, UsbDevice> deviceList = usbManager.getDeviceList();
         for (UsbDevice device : deviceList.values()) {
-            if (isTarget(device)) return device;
+            if (isTarget(device)) out.add(device);
         }
+        Collections.sort(out, (a, b) -> a.getDeviceName().compareTo(b.getDeviceName()));
+        return out;
+    }
+
+    /**
+     * The camera to open without asking: the only one connected, or the one last used
+     * (by VID:PID) when several are. null if none, or several and none remembered.
+     */
+    public UsbDevice findDevice(String preferredKey) {
+        List<UsbDevice> all = findDevices();
+        if (all.isEmpty()) return null;
+        if (all.size() == 1) return all.get(0);
+        for (UsbDevice d : all) if (key(d).equals(preferredKey)) return d;
         return null;
+    }
+
+    public UsbDevice findDevice() { return findDevice(null); }
+
+    /** "349c:0411" — what we remember a camera by. */
+    public static String key(UsbDevice d) {
+        return String.format(Locale.US, "%04x:%04x", d.getVendorId(), d.getProductId());
+    }
+
+    /** "Generic HD camera · 349c:0411" */
+    public static String label(UsbDevice d) {
+        String name = null;
+        try { name = d.getProductName(); } catch (Exception ignored) {}
+        if (name == null || name.trim().isEmpty()) name = "USB camera";
+        return name.trim() + " · " + key(d);
     }
 
     public boolean hasPermission(UsbDevice device) {
@@ -151,8 +185,13 @@ public class UsbDeviceManager {
         usbManager.requestPermission(device, pi);
     }
 
+    /** Any UVC camera: has a video-class interface. */
     private boolean isTarget(UsbDevice device) {
-        return device.getVendorId() == TARGET_VID && device.getProductId() == TARGET_PID;
+        if (device.getDeviceClass() == USB_CLASS_VIDEO) return true;
+        for (int i = 0; i < device.getInterfaceCount(); i++) {
+            if (device.getInterface(i).getInterfaceClass() == USB_CLASS_VIDEO) return true;
+        }
+        return false;
     }
 
     @SuppressWarnings("deprecation")

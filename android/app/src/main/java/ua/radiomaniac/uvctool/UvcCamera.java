@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 public class UvcCamera {
 
@@ -40,6 +41,8 @@ public class UvcCamera {
     private Runnable frameWatchdog;
     private volatile boolean firstFrameReceived = false;
     private int lastButtonState = 0;
+    private List<UvcMode> modes = java.util.Collections.emptyList();
+    private volatile UvcMode mode;
 
     // Called from JNI (frame_cb thread): bufIndex=0 or 1 → which DirectByteBuffer was written
     private void onFrame(int bufIndex, int w, int h) {
@@ -83,18 +86,37 @@ public class UvcCamera {
             Log.e(TAG, "openDevice returned null");
             return false;
         }
-        frameBufA = ByteBuffer.allocateDirect(640 * 480 * 2);
-        frameBufB = ByteBuffer.allocateDirect(640 * 480 * 2);
         nativeInit();
-        boolean ok = nativeOpen(connection.getFileDescriptor(), frameBufA, frameBufB);
+        boolean ok = nativeOpen(connection.getFileDescriptor());
         Log.i(TAG, "nativeOpen fd=" + connection.getFileDescriptor() + " ok=" + ok);
+        if (ok) {
+            modes = UvcMode.parse(nativeGetModes());
+            for (UvcMode m : modes) Log.i(TAG, "mode: " + m.label() + (m.supported() ? "" : " (unsupported)"));
+        }
         return ok;
     }
 
-    public boolean start() {
+    /** Modes the open camera advertises (empty before open()). */
+    public List<UvcMode> getModes() { return modes; }
+
+    /** Mode of the running stream, or null. */
+    public UvcMode getMode() { return mode; }
+
+    public boolean start(UvcMode m) {
         firstFrameReceived = false;
-        boolean ok = nativeStart();
-        Log.i(TAG, "nativeStart ok=" + ok);
+        if (m == null) {
+            if (errorListener != null) errorListener.onError("start", "no supported video mode");
+            return false;
+        }
+        // two frame buffers sized for this mode (YUYV: 2 bytes per pixel)
+        int bytes = m.width * m.height * 2;
+        if (frameBufA == null || frameBufA.capacity() < bytes) {
+            frameBufA = ByteBuffer.allocateDirect(bytes);
+            frameBufB = ByteBuffer.allocateDirect(bytes);
+        }
+        boolean ok = nativeStart(m.fourcc, m.width, m.height, m.maxFps(), frameBufA, frameBufB);
+        mode = ok ? m : null;
+        Log.i(TAG, "nativeStart " + m.label() + " ok=" + ok);
         if (ok) startFrameWatchdog();
         else if (errorListener != null) {
             errorListener.onError("start", "uvc_start_streaming failed (see log)");
@@ -105,6 +127,7 @@ public class UvcCamera {
     public void stop() {
         cancelFrameWatchdog();
         nativeStop();
+        mode = null;
     }
 
     public void close() {
@@ -114,6 +137,8 @@ public class UvcCamera {
         if (connection != null) { connection.close(); connection = null; }
         frameBufA = null;
         frameBufB = null;
+        modes = java.util.Collections.emptyList();
+        mode = null;
     }
 
     private void startFrameWatchdog() {
@@ -123,7 +148,8 @@ public class UvcCamera {
                 Log.e(TAG, "no frames in " + FRAME_TIMEOUT_MS + "ms");
                 if (errorListener != null) {
                     errorListener.onError("streaming_timeout",
-                        "No frames received in " + FRAME_TIMEOUT_MS + "ms (640x480 YUYV). " +
+                        "No frames received in " + FRAME_TIMEOUT_MS + "ms (" +
+                        (mode != null ? mode.label() : "?") + "). " +
                         "Check uvc_wrap/uvc_start_streaming in logcat.");
                 }
             }
@@ -139,8 +165,9 @@ public class UvcCamera {
     }
 
     private native void nativeInit();
-    private native boolean nativeOpen(int fd, ByteBuffer bufA, ByteBuffer bufB);
-    private native boolean nativeStart();
+    private native boolean nativeOpen(int fd);
+    private native int[] nativeGetModes();
+    private native boolean nativeStart(int fourcc, int w, int h, int fps, ByteBuffer bufA, ByteBuffer bufB);
     private native void nativeStop();
     private native void nativeClose();
     private native void nativeDeinit();

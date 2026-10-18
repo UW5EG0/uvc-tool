@@ -53,6 +53,8 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_FLIP = "flip_x";
     private static final String KEY_ROTATION = "rotation";
     private static final String KEY_WARMTH = "warmth";
+    private static final String KEY_LAST_CAMERA = "last_camera";     // "vvvv:pppp"
+    private static final String KEY_MODE_PREFIX = "mode_";           // + camera key -> UvcMode.key()
 
     private GLSurfaceView glView;
     private YuyvRenderer renderer;
@@ -90,6 +92,7 @@ public class MainActivity extends AppCompatActivity {
     };
 
     private boolean streaming = false;
+    private UsbDevice currentDevice;      // camera of the open session
     private boolean cameraOpen = false;   // native session is open (streaming or starting)
     private boolean resumed = false;      // false while a system dialog sits on top of us
     private int frameCount = 0;
@@ -219,6 +222,7 @@ public class MainActivity extends AppCompatActivity {
         btnRecord     = overlay.findViewById(R.id.btn_record);
         btnRotate     = overlay.findViewById(R.id.btn_rotate);
         tvRec         = overlay.findViewById(R.id.tv_rec);
+        tvStatus.setOnClickListener(v -> showSourceSheet());
         btnGallery    = overlay.findViewById(R.id.btn_gallery);
         btnGallery.setOnClickListener(v -> {
             // leaving the screen would stop the recording (onStop); the button is
@@ -355,7 +359,7 @@ public class MainActivity extends AppCompatActivity {
             countFps();
             if (!streaming) {
                 streaming = true;
-                runOnUiThread(() -> setStatus(getString(R.string.status_streaming), R.color.text_ok));
+                runOnUiThread(() -> setStatus(streamingStatus(), R.color.text_ok));
                 runOnUiThread(() -> tvFps.setVisibility(View.VISIBLE));
             }
         });
@@ -373,6 +377,12 @@ public class MainActivity extends AppCompatActivity {
         usbDeviceManager = new UsbDeviceManager(this);
         usbDeviceManager.setListener(new UsbDeviceManager.Listener() {
             @Override public void onDeviceAttached(UsbDevice device) {
+                if (cameraOpen) {
+                    // another camera (e.g. on a hub) while one is running: just tell
+                    Toast.makeText(MainActivity.this, getString(R.string.toast_camera_added,
+                            UsbDeviceManager.label(device)), Toast.LENGTH_LONG).show();
+                    return;
+                }
                 if (usbDeviceManager.hasPermission(device)) {
                     Log.d(TAG, "attach: permission already held -> open");
                     uiHandler.postDelayed(() -> { if (!cameraOpen) openCamera(device); }, 300);
@@ -387,7 +397,12 @@ public class MainActivity extends AppCompatActivity {
                 setStatus(getString(R.string.status_found), R.color.text_secondary);
                 scheduleAttachFallback(device, 3000);
             }
-            @Override public void onDeviceDetached() {
+            @Override public void onDeviceDetached(UsbDevice device) {
+                if (currentDevice != null && !currentDevice.getDeviceName().equals(device.getDeviceName())) {
+                    Log.d(TAG, "detach of another camera, ours keeps running");
+                    return;
+                }
+                currentDevice = null;
                 runOnUiThread(MainActivity.this::stopRecording);
                 streaming = false;
                 cameraOpen = false;
@@ -423,7 +438,7 @@ public class MainActivity extends AppCompatActivity {
         UsbDevice fromIntent = usbDeviceManager.getTargetDeviceFromIntent(intent);
         if (!hasCameraPermission()) {
             Log.d(TAG, "no CAMERA permission yet -> asking first");
-            deviceAwaitingCameraPerm = (fromIntent != null) ? fromIntent : usbDeviceManager.findDevice();
+            deviceAwaitingCameraPerm = (fromIntent != null) ? fromIntent : preferredDevice();
             cameraPermLauncher.launch(Manifest.permission.CAMERA);
             return;
         }
@@ -433,14 +448,15 @@ public class MainActivity extends AppCompatActivity {
             openOrRequest(fromIntent);
             return;
         }
-        UsbDevice device = usbDeviceManager.findDevice();
+        UsbDevice device = preferredDevice();
         if (device != null) openOrRequest(device);
+        else if (usbDeviceManager.findDevices().size() > 1) showCameraPicker();
         else showNoCamera(true);
     }
 
     private void scheduleAttachFallback(UsbDevice device, long delayMs) {
         uiHandler.postDelayed(() -> {
-            if (cameraOpen || usbDeviceManager.findDevice() == null) return;
+            if (cameraOpen || usbDeviceManager.findDevices().isEmpty()) return;
             if (!resumed) {               // a system dialog is still up: check again later
                 scheduleAttachFallback(device, 1000);
                 return;
@@ -480,21 +496,126 @@ public class MainActivity extends AppCompatActivity {
         streaming = false;
         boolean ok = camera.open(usbManager, device);
         Log.d(TAG, "camera.open=" + ok);
-        if (ok) ok = camera.start();
+        UvcMode mode = ok ? chooseMode(device) : null;
+        if (ok && mode == null) {
+            ok = false;
+            Log.e(TAG, "no supported mode on " + UsbDeviceManager.label(device));
+        }
+        if (ok) ok = camera.start(mode);
         Log.d(TAG, "camera.start=" + ok);
+        if (ok) {
+            currentDevice = device;
+            prefs.edit().putString(KEY_LAST_CAMERA, UsbDeviceManager.key(device)).apply();
+        }
         if (!ok) {
             // release the native handle AND the UsbDeviceConnection, otherwise the
             // claimed interface stays busy and every retry fails with "Busy"
             camera.stop();
             camera.close();
             cameraOpen = false;
-            setStatus("Камера не стартувала — див. лог", R.color.text_error);
+            setStatus(mode == null && !camera.getModes().isEmpty()
+                    ? getString(R.string.status_no_supported_mode) : "Камера не стартувала — див. лог",
+                    R.color.text_error);
             showNoCamera(true);
         }
     }
 
+    /** Remembered mode for this camera if it still offers it, else the default pick. */
+    private UvcMode chooseMode(UsbDevice device) {
+        String saved = prefs.getString(KEY_MODE_PREFIX + UsbDeviceManager.key(device), null);
+        for (UvcMode m : camera.getModes()) if (m.supported() && m.sameAs(saved)) return m;
+        return UvcMode.pickDefault(camera.getModes());
+    }
+
+    private UsbDevice preferredDevice() {
+        return usbDeviceManager.findDevice(prefs.getString(KEY_LAST_CAMERA, null));
+    }
+
+    private String streamingStatus() {
+        UvcMode m = camera.getMode();
+        return (m != null ? m.sizeName() + " " + m.formatName() : getString(R.string.status_streaming)) + "  ▾";
+    }
+
+    // ------------------------------------------------------------------ camera / mode picker
+
+    /** Tap on the status badge: cameras (when several) and the modes of the current one. */
+    private void showSourceSheet() {
+        java.util.List<UsbDevice> cams = usbDeviceManager.findDevices();
+        if (!cameraOpen) {
+            if (cams.size() > 1) showCameraPicker(); else connectCamera();
+            return;
+        }
+        java.util.List<CharSequence> items = new java.util.ArrayList<>();
+        java.util.List<Runnable> actions = new java.util.ArrayList<>();
+        if (cams.size() > 1) {
+            for (UsbDevice d : cams) {
+                boolean cur = currentDevice != null && d.getDeviceName().equals(currentDevice.getDeviceName());
+                items.add((cur ? "● " : "○ ") + UsbDeviceManager.label(d));
+                actions.add(cur ? null : () -> switchCamera(d));
+            }
+        }
+        UvcMode curMode = camera.getMode();
+        for (UvcMode m : camera.getModes()) {
+            boolean cur = curMode != null && m.sameAs(curMode.key());
+            String text = (cur ? "✓ " : "    ") + m.label()
+                    + (m.supported() ? "" : "  — " + getString(R.string.mode_unsupported));
+            items.add(text);
+            actions.add(cur ? null : m.supported() ? () -> switchMode(m)
+                    : () -> Toast.makeText(this, R.string.mode_unsupported_toast, Toast.LENGTH_LONG).show());
+        }
+        String title = currentDevice != null ? UsbDeviceManager.label(currentDevice) : getString(R.string.picker_title);
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(title)
+                .setItems(items.toArray(new CharSequence[0]), (d, which) -> {
+                    Runnable r = actions.get(which);
+                    if (r != null) r.run();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /** No camera open and several connected: choose which one. */
+    private void showCameraPicker() {
+        java.util.List<UsbDevice> cams = usbDeviceManager.findDevices();
+        if (cams.isEmpty()) { showNoCamera(true); return; }
+        CharSequence[] names = new CharSequence[cams.size()];
+        for (int i = 0; i < names.length; i++) names[i] = UsbDeviceManager.label(cams.get(i));
+        new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.picker_title)
+                .setItems(names, (d, which) -> openOrRequest(cams.get(which)))
+                .setNegativeButton(android.R.string.cancel, (d, w) -> showNoCamera(true))
+                .show();
+    }
+
+    private void switchCamera(UsbDevice device) {
+        Log.i(TAG, "switch camera -> " + UsbDeviceManager.label(device));
+        stopRecording();
+        camera.stop();
+        camera.close();
+        streaming = false;
+        cameraOpen = false;
+        currentDevice = null;
+        tvFps.setVisibility(View.GONE);
+        openOrRequest(device);
+    }
+
+    private void switchMode(UvcMode m) {
+        if (recording) { Toast.makeText(this, R.string.toast_stop_rec_first, Toast.LENGTH_SHORT).show(); return; }
+        Log.i(TAG, "switch mode -> " + m.label());
+        camera.stop();
+        streaming = false;
+        setStatus(getString(R.string.status_opening), R.color.text_secondary);
+        if (camera.start(m)) {
+            if (currentDevice != null)
+                prefs.edit().putString(KEY_MODE_PREFIX + UsbDeviceManager.key(currentDevice), m.key()).apply();
+        } else {
+            setStatus("Режим не стартував — див. лог", R.color.text_error);
+        }
+    }
+
     private void connectCamera() {
-        UsbDevice device = usbDeviceManager.findDevice();
+        UsbDevice device = preferredDevice();
+        if (device == null && usbDeviceManager.findDevices().size() > 1) { showCameraPicker(); return; }
         if (device == null) {
             setStatus(getString(R.string.status_no_camera), R.color.text_warn);
             return;
