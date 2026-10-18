@@ -169,6 +169,25 @@
 
 
 
+        <!-- Flip / rotate: shown only when the panel has room (big screens); always in the menu -->
+        <ImageButton
+            android:id="@+id/btn_flip"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_btn_round"
+            android:src="@drawable/ic_flip"
+            android:scaleType="centerInside"
+            android:contentDescription="@string/cd_flip" />
+
+        <ImageButton
+            android:id="@+id/btn_rotate"
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:background="@drawable/bg_btn_round"
+            android:src="@drawable/ic_rotate"
+            android:scaleType="centerInside"
+            android:contentDescription="@string/cd_rotate" />
+
         <!-- Photo / video mode toggle: decides what the shutter and the cable button do -->
         <ImageButton
             android:id="@+id/btn_mode"

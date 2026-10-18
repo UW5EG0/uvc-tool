@@ -72,7 +72,9 @@ public class MainActivity extends AppCompatActivity {
 
     private TextView tvStatus, tvFps, tvRec;
     private View groupNoCamera, panelWb;
-    private ImageButton btnShutter, btnMode, btnLog;
+    private ImageButton btnShutter, btnMode, btnLog, btnFlip, btnRotate;
+    /** Full panel (flip, rotate, shutter, mode, gallery) needs this much along its axis. */
+    private static final int FULL_PANEL_DP = 388;
     private int flipMode = 0;
     private boolean videoMode = false;            // shutter + cable button: photo or record
     private static final String KEY_VIDEO_MODE = "video_mode";
@@ -227,6 +229,11 @@ public class MainActivity extends AppCompatActivity {
         groupNoCamera = overlay.findViewById(R.id.group_no_camera);
         panelWb       = overlay.findViewById(R.id.panel_wb);
         btnShutter    = overlay.findViewById(R.id.btn_photo);
+        btnFlip       = overlay.findViewById(R.id.btn_flip);
+        btnRotate     = overlay.findViewById(R.id.btn_rotate);
+        btnFlip.setOnClickListener(v -> showMirrorMenu(btnFlip));
+        btnRotate.setOnClickListener(v -> rotate90());
+        updateFlipButton();
         btnMode       = overlay.findViewById(R.id.btn_mode);
         tvRec         = overlay.findViewById(R.id.tv_rec);
         tvStatus.setOnClickListener(v -> showSourceSheet());
@@ -259,6 +266,18 @@ public class MainActivity extends AppCompatActivity {
         }
         applyOrientation(getResources().getConfiguration().orientation);
         overlayRoot.post(() -> Log.i(TAG, "screen: " + screenInfo()));
+
+        // Keep the UI clear of system bars and the display cutout (notch / hole).
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(overlayRoot, (v, insets) -> {
+            androidx.core.graphics.Insets in = insets.getInsets(
+                    androidx.core.view.WindowInsetsCompat.Type.systemBars()
+                    | androidx.core.view.WindowInsetsCompat.Type.displayCutout());
+            v.setPadding(in.left, in.top, in.right, in.bottom);
+            Log.i(TAG, "insets l=" + in.left + " t=" + in.top + " r=" + in.right + " b=" + in.bottom);
+            return insets;
+        });
+        // Re-place the picture whenever the controls move or show/hide (rotation, WB slider...).
+        overlayRoot.getViewTreeObserver().addOnGlobalLayoutListener(this::updateVideoLayout);
 
 
         videoMode = prefs.getBoolean(KEY_VIDEO_MODE, false);
@@ -319,6 +338,20 @@ public class MainActivity extends AppCompatActivity {
         android.widget.LinearLayout panel = overlayRoot.findViewById(R.id.panel_controls);
         panel.setOrientation(land ? android.widget.LinearLayout.VERTICAL
                                   : android.widget.LinearLayout.HORIZONTAL);
+
+        // Big screen: flip | rotate | SHUTTER | mode | gallery.
+        // Small (4-5") phone: mode | SHUTTER | gallery; flip/rotate stay in the menu.
+        Configuration c = getResources().getConfiguration();
+        int axisDp = land ? c.screenHeightDp : c.screenWidthDp;
+        boolean compact = axisDp < FULL_PANEL_DP;
+        View[] order = compact
+                ? new View[]{ btnMode, btnShutter, btnGallery }
+                : new View[]{ btnFlip, btnRotate, btnShutter, btnMode, btnGallery };
+        panel.removeAllViews();
+        for (View v : order) panel.addView(v);
+        btnFlip.setVisibility(compact ? View.GONE : View.VISIBLE);
+        btnRotate.setVisibility(compact ? View.GONE : View.VISIBLE);
+        Log.i(TAG, "panel: " + (compact ? "compact" : "full") + " (axis " + axisDp + "dp)");
         // Spacing along the panel axis: 14dp between buttons, 18dp around the shutter.
         for (int i = 0; i < panel.getChildCount(); i++) {
             View child = panel.getChildAt(i);
@@ -656,6 +689,8 @@ public class MainActivity extends AppCompatActivity {
                 recording = true;
                 beeper.recStart();
                 updateShutter();
+                btnRotate.setEnabled(false);       // output size is fixed for the file
+                btnRotate.setAlpha(0.35f);
                 btnGallery.setEnabled(false);      // leaving the screen ends the recording
                 btnGallery.setAlpha(0.35f);
                 tvRec.setText("● 00:00");
@@ -672,6 +707,8 @@ public class MainActivity extends AppCompatActivity {
         tvRec.setVisibility(View.GONE);
         beeper.recStop();
         updateShutter();
+        btnRotate.setEnabled(true);
+        btnRotate.setAlpha(1f);
         btnGallery.setEnabled(true);
         btnGallery.setAlpha(1f);
         glView.queueEvent(() -> {
@@ -815,11 +852,7 @@ public class MainActivity extends AppCompatActivity {
             if (id >= 21 && id <= 24) { setFlipMode(id - 21); return true; }
             switch (id) {
                 case 10: openGallery(); return true;
-                case 30:
-                    renderer.rotation = (renderer.rotation + 90) % 360;
-                    prefs.edit().putInt(KEY_ROTATION, renderer.rotation).apply();
-                    glView.requestRender();
-                    return true;
+                case 30: rotate90(); return true;
                 case 40:
                     panelWb.setVisibility(panelWb.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
                     return true;
@@ -838,11 +871,75 @@ public class MainActivity extends AppCompatActivity {
         pm.show();
     }
 
+    /** Tell the renderer where the controls are so the picture can sit beside them. */
+    private void updateVideoLayout() {
+        View root = overlayRoot;
+        if (root == null || root.getWidth() == 0) return;
+        int[] bounds = { root.getPaddingLeft(), root.getPaddingTop(),
+                root.getWidth() - root.getPaddingRight(), root.getHeight() - root.getPaddingBottom() };
+        int gap = dp(4);
+        int[][] hard = { rectOf(R.id.panel_controls, gap), rectOf(R.id.panel_wb, gap) };
+        int[][] soft = { union(rectOf(R.id.tv_status, gap), rectOf(R.id.tv_fps, gap),
+                               rectOf(R.id.tv_rec, gap), rectOf(R.id.tv_update, gap)),
+                         rectOf(R.id.btn_log, gap) };
+        String sig = java.util.Arrays.toString(bounds) + java.util.Arrays.deepToString(hard)
+                + java.util.Arrays.deepToString(soft);
+        if (sig.equals(lastLayoutSig)) return;
+        lastLayoutSig = sig;
+        Log.i(TAG, "video area " + sig);
+        renderer.setLayoutHints(bounds, hard, soft);
+        glView.requestRender();
+    }
+
+    private String lastLayoutSig;
+
+    /** Bounds of a visible overlay child (+gap), or null if gone. */
+    private int[] rectOf(int id, int gap) {
+        View v = overlayRoot.findViewById(id);
+        if (v == null || v.getVisibility() != View.VISIBLE || v.getWidth() == 0) return null;
+        return new int[]{ v.getLeft() - gap, v.getTop() - gap, v.getRight() + gap, v.getBottom() + gap };
+    }
+
+    private static int[] union(int[]... rs) {
+        int[] u = null;
+        for (int[] r : rs) {
+            if (r == null) continue;
+            if (u == null) u = r.clone();
+            else { u[0] = Math.min(u[0], r[0]); u[1] = Math.min(u[1], r[1]);
+                   u[2] = Math.max(u[2], r[2]); u[3] = Math.max(u[3], r[3]); }
+        }
+        return u;
+    }
+
+    private void rotate90() {
+        if (recording) return;                 // output size is fixed for the file
+        renderer.rotation = (renderer.rotation + 90) % 360;
+        prefs.edit().putInt(KEY_ROTATION, renderer.rotation).apply();
+        lastLayoutSig = null;                  // aspect changed: re-place the picture
+        glView.requestRender();
+    }
+
+    private void showMirrorMenu(View anchor) {
+        android.widget.PopupMenu pm = new android.widget.PopupMenu(this, anchor);
+        int[] names = { R.string.mirror_off, R.string.mirror_h, R.string.mirror_v, R.string.mirror_hv };
+        for (int i = 0; i < 4; i++) pm.getMenu().add(1, 21 + i, i, names[i]).setChecked(flipMode == i);
+        pm.getMenu().setGroupCheckable(1, true, true);
+        pm.setOnMenuItemClickListener(item -> { setFlipMode(item.getItemId() - 21); return true; });
+        pm.show();
+    }
+
+    private void updateFlipButton() {
+        if (btnFlip == null) return;
+        btnFlip.setBackground(ContextCompat.getDrawable(this,
+                flipMode != 0 ? R.drawable.bg_btn_active : R.drawable.bg_btn_round));
+    }
+
     private void setFlipMode(int mode) {
         flipMode = mode;
         renderer.flipX = (mode & 1) != 0;
         renderer.flipY = (mode & 2) != 0;
         prefs.edit().putInt(KEY_FLIP_MODE, mode).apply();
+        updateFlipButton();
         glView.requestRender();
         if (streaming) setStatus(streamingStatus(), R.color.text_ok);
     }

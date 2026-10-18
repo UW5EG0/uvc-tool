@@ -307,21 +307,81 @@ public class YuyvRenderer implements GLSurfaceView.Renderer {
     }
 
     /** Aspect-fit the (possibly rotated) frame into the surface, centred. */
+    // ------------------------------------------------------------------ layout around the UI
+
+    /**
+     * Where the picture may go, in view coordinates (origin top-left, same size as
+     * the GL surface): bounds = screen minus system bars / display cutout; hard
+     * obstacles (control panel, WB slider) are always avoided; soft ones (status
+     * badges, menu button) only when that costs no picture size.
+     * Each rect is {left, top, right, bottom}. Set from the UI thread.
+     */
+    public void setLayoutHints(int[] bounds, int[][] hard, int[][] soft) {
+        hintBounds = bounds; hintHard = hard; hintSoft = soft;
+    }
+
+    private volatile int[] hintBounds;
+    private volatile int[][] hintHard, hintSoft;
+
     private void computeViewport(int fw, int fh) {
         boolean rot = isRotated90();
         float camW = rot ? fh : fw;
         float camH = rot ? fw : fh;
-        float camAspect = camW / camH;
-        float surfAspect = (float) surfaceW / surfaceH;
-        if (surfAspect > camAspect) {
-            vpH = surfaceH;
-            vpW = Math.round(surfaceH * camAspect);
-        } else {
-            vpW = surfaceW;
-            vpH = Math.round(surfaceW / camAspect);
+
+        int[] b = hintBounds;
+        int[] area = (b != null) ? b.clone() : new int[]{0, 0, surfaceW, surfaceH};
+        int[][] hard = hintHard, soft = hintSoft;
+        if (hard != null) {
+            int[] h = bestRect(area, hard, camW, camH);
+            area = h;
+            if (soft != null) {
+                int[] s = bestRect(h, soft, camW, camH);
+                if (scale(s, camW, camH) >= scale(h, camW, camH) * 0.995f) area = s;
+            }
         }
-        vpX = (surfaceW - vpW) / 2;
-        vpY = (surfaceH - vpH) / 2;
+
+        float k = scale(area, camW, camH);
+        vpW = Math.round(camW * k);
+        vpH = Math.round(camH * k);
+        int left = area[0] + (area[2] - area[0] - vpW) / 2;
+        int top  = area[1] + (area[3] - area[1] - vpH) / 2;
+        vpX = left;
+        vpY = surfaceH - top - vpH;          // GL origin is bottom-left
+    }
+
+    private static float scale(int[] r, float camW, float camH) {
+        int w = r[2] - r[0], h = r[3] - r[1];
+        if (w <= 0 || h <= 0) return 0f;
+        return Math.min(w / camW, h / camH);
+    }
+
+    /**
+     * Largest picture that fits in {@code area} without touching any obstacle:
+     * for every obstacle that overlaps, try cutting the area on each of its four
+     * sides (at most 4^n combinations, n <= 3 here).
+     */
+    private static int[] bestRect(int[] area, int[][] obstacles, float camW, float camH) {
+        return bestRect(area, obstacles, 0, camW, camH);
+    }
+
+    private static int[] bestRect(int[] r, int[][] obs, int i, float camW, float camH) {
+        if (i == obs.length) return r;
+        int[] o = obs[i];
+        if (o == null || o[2] <= r[0] || o[0] >= r[2] || o[3] <= r[1] || o[1] >= r[3])
+            return bestRect(r, obs, i + 1, camW, camH);           // no overlap
+        int[][] cuts = {
+                { o[2], r[1], r[2], r[3] },   // keep the part right of the obstacle
+                { r[0], r[1], o[0], r[3] },   // left of it
+                { r[0], o[3], r[2], r[3] },   // below it
+                { r[0], r[1], r[2], o[1] } }; // above it
+        int[] best = null; float bestK = -1f;
+        for (int[] c : cuts) {
+            if (c[2] - c[0] <= 0 || c[3] - c[1] <= 0) continue;
+            int[] res = bestRect(c, obs, i + 1, camW, camH);
+            float k = scale(res, camW, camH);
+            if (k > bestK) { bestK = k; best = res; }
+        }
+        return best != null ? best : r;
     }
 
     // ------------------------------------------------------------------ shader utils
