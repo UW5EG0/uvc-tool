@@ -128,17 +128,45 @@ public class UvcCamera {
             frameBufA = ByteBuffer.allocateDirect(bytes);
             frameBufB = ByteBuffer.allocateDirect(bytes);
         }
+        nativeSetQueue(queueDepth);
         boolean ok = nativeStart(m.fourcc, m.width, m.height, m.maxFps(), frameBufA, frameBufB);
         mode = ok ? m : null;
-        Log.i(TAG, "nativeStart " + m.label() + " ok=" + ok);
-        if (ok) startFrameWatchdog();
+        Log.i(TAG, "nativeStart " + m.label() + " ok=" + ok + " queue=" + queueDepth);
+        if (ok) { startFrameWatchdog(); scheduleQueueCheck(); }
         else if (errorListener != null) {
             errorListener.onError("start", "uvc_start_streaming failed (see log)");
         }
         return ok;
     }
 
+    // Some USB hosts (MediaTek musb, e.g. CUBOT KingKong Mini 3) hand back
+    // transfers queued beyond their limit "filled" with zeros. Start with a deep
+    // queue (smooth on proper xHCI hosts) and fall back to a short one when the
+    // stream shows header-less payloads. Kept for the rest of the process.
+    private static final int QUEUE_DEEP = 128, QUEUE_SHORT = 8;
+    private static volatile int queueDepth = QUEUE_DEEP;
+    private final Runnable queueCheck = () -> {
+        UvcMode m = mode;
+        if (m == null) return;
+        int junk = nativeJunkCount();
+        if (junk > 200 && queueDepth > QUEUE_SHORT) {
+            Log.w(TAG, junk + " payloads without UVC header: host drops a deep queue, using " + QUEUE_SHORT + " transfers");
+            queueDepth = QUEUE_SHORT;
+            cancelFrameWatchdog();
+            nativeStop();
+            start(m);
+        } else {
+            Log.i(TAG, "queue check: " + junk + " header-less payloads, queue=" + queueDepth);
+        }
+    };
+
+    private void scheduleQueueCheck() {
+        mainHandler.removeCallbacks(queueCheck);
+        mainHandler.postDelayed(queueCheck, 1500);
+    }
+
     public void stop() {
+        mainHandler.removeCallbacks(queueCheck);
         cancelFrameWatchdog();
         nativeStop();
         mode = null;
@@ -146,6 +174,7 @@ public class UvcCamera {
 
     public void close() {
         cancelFrameWatchdog();
+        mainHandler.removeCallbacks(queueCheck);
         nativeClose();
         nativeDeinit();
         if (connection != null) { connection.close(); connection = null; }
@@ -192,6 +221,8 @@ public class UvcCamera {
     private native int[] nativeGetModes();
     private native boolean nativeStart(int fourcc, int w, int h, int fps, ByteBuffer bufA, ByteBuffer bufB);
     private native void nativeStop();
+    private native void nativeSetQueue(int transfers);
+    private native int nativeJunkCount();
     private native void nativeClose();
     private native void nativeDeinit();
 }

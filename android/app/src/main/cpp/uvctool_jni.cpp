@@ -14,6 +14,11 @@
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,  TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+// Patched libuvc stream.c (cpp/config/libuvc/stream.c): run-time queue depth and
+// count of payloads that arrived without a UVC header (zeroed by the host).
+extern "C" int uvctool_xfer_count;
+extern "C" volatile unsigned uvctool_junk;
+
 static uvc_context_t      *uvc_ctx  = NULL;
 static uvc_device_handle_t *devh    = NULL;
 static uvc_stream_ctrl_t   ctrl;
@@ -381,6 +386,7 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeStart(JNIEnv *env, jobject, jint fou
             frame_drop_cnt = 0;
             glitch_streak = 0;
             stitch_len = 0; stitch_ok_cnt = 0;
+            uvctool_junk = 0;
             r = uvc_start_streaming(devh, &ctrl, frame_cb, j_camera_obj, 0);
             LOGI("attempt %d: uvc_start_streaming: %d (%s)", attempt, r, uvc_strerror(r));
             if (r == UVC_SUCCESS) { streaming = true; return JNI_TRUE; }
@@ -389,6 +395,16 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeStart(JNIEnv *env, jobject, jint fou
     }
     LOGE("uvc_start_streaming failed after %d attempts: %d (%s)", ATTEMPTS, r, uvc_strerror(r));
     return JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_ua_radiomaniac_uvctool_UvcCamera_nativeSetQueue(JNIEnv *, jobject, jint n) {
+    uvctool_xfer_count = n;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_ua_radiomaniac_uvctool_UvcCamera_nativeJunkCount(JNIEnv *, jobject) {
+    return (jint)uvctool_junk;
 }
 
 extern "C" JNIEXPORT void JNICALL
