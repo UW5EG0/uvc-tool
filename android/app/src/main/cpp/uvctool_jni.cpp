@@ -1,3 +1,4 @@
+#include <time.h>
 #include <jni.h>
 #include <android/log.h>
 #include <libusb.h>
@@ -114,21 +115,86 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeOpen(JNIEnv *env, jobject, jint fd) 
     return JNI_TRUE;
 }
 
+// --- split-frame stitching ---------------------------------------------------
+// Some host controllers (seen on CUBOT KingKong Mini 3, 320x240) make libuvc cut
+// every frame in two: ~96% of the frame, then the rest ~1 ms later. Glue the
+// pieces back together instead of dropping both.
+static uint8_t  *stitch_buf     = NULL;
+static size_t    stitch_cap     = 0;
+static size_t    stitch_len     = 0;     // bytes of a pending head piece, 0 = none
+static int64_t   stitch_t_us    = 0;
+static uint32_t  stitch_ok_cnt  = 0;
+static uint32_t  deliver_cnt    = 0;     // alternates the double buffer
+
+static int64_t now_us() {
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+
+static void deliver_frame(const uint8_t *data, int w, int h, uint32_t seq, void *user_ptr);
+
 static void frame_cb(uvc_frame_t *frame, void *user_ptr) {
     size_t expected = (size_t)frame->width * frame->height * 2;
-    if (frame->data_bytes != expected) {
-        frame_drop_cnt++;
-        LOGW("drop frame#%u: data_bytes=%zu expected=%zu (drops=%u)",
-             frame->sequence, frame->data_bytes, expected, frame_drop_cnt);
+    if (frame->data_bytes == expected) {
+        stitch_len = 0;
+        deliver_frame((const uint8_t *)frame->data, frame->width, frame->height, frame->sequence, user_ptr);
         return;
     }
+
+    if (stitch_cap < expected) {
+        free(stitch_buf);
+        stitch_buf = (uint8_t *)malloc(expected);
+        stitch_cap = stitch_buf ? expected : 0;
+        stitch_len = 0;
+        if (!stitch_buf) return;
+    }
+    int64_t t = now_us();
+    size_t n = frame->data_bytes;
+    size_t tol = expected / 32;                    // ~3% slack on the total
+
+    if (n >= expected / 2 && n < expected) {
+        // head piece: remember it, wait for the tail
+        if (stitch_len >= expected - tol) {
+            // previous head never got its tail but is nearly whole: show it anyway
+            deliver_frame(stitch_buf, frame->width, frame->height, frame->sequence, user_ptr);
+        }
+        memcpy(stitch_buf, frame->data, n);
+        stitch_len = n;
+        stitch_t_us = t;
+        return;
+    }
+
+    if (n < expected / 2 && stitch_len > 0 && t - stitch_t_us < 10000 &&
+        stitch_len + n + tol >= expected && stitch_len + n <= expected + tol) {
+        // tail piece: append (rows past the end are cut, a short total keeps
+        // the previous bottom rows) and deliver the whole frame
+        size_t take = n;
+        if (stitch_len + take > expected) take = expected - stitch_len;
+        memcpy(stitch_buf + stitch_len, frame->data, take);
+        stitch_len = 0;
+        stitch_ok_cnt++;
+        if (stitch_ok_cnt == 1 || (stitch_ok_cnt % 300) == 0)
+            LOGW("stitched split frame #%u (%u so far)", frame->sequence, stitch_ok_cnt);
+        deliver_frame(stitch_buf, frame->width, frame->height, frame->sequence, user_ptr);
+        return;
+    }
+
+    stitch_len = 0;
+    frame_drop_cnt++;
+    if (frame_drop_cnt < 20 || (frame_drop_cnt % 100) == 0)
+        LOGW("drop frame#%u: data_bytes=%zu expected=%zu (drops=%u)",
+             frame->sequence, frame->data_bytes, expected, frame_drop_cnt);
+}
+
+static void deliver_frame(const uint8_t *data, int w, int h, uint32_t seq, void *user_ptr) {
+    size_t expected = (size_t)w * h * 2;
 
     // --- byte-order sanity check (green/purple picture) ---
     // In YUYV, luma (even bytes) carries the fine detail while chroma (odd bytes)
     // is smooth. If the stream lands one byte off, the roles swap: the picture
     // turns green/magenta. Compare horizontal variation of both on a sample.
     {
-        const uint8_t *d = (const uint8_t *)frame->data;
+        const uint8_t *d = data;
         size_t stride = (expected / 2048) & ~(size_t)3;
         if (stride < 8) stride = 8;
         uint32_t dy = 0, dc = 0, cnt = 0;
@@ -139,11 +205,11 @@ static void frame_cb(uvc_frame_t *frame, void *user_ptr) {
         if (dy + dc > cnt * 4) {                       // enough texture to judge
             if (dc > dy * 2) glitch_streak++; else glitch_streak = 0;
         }
-        if ((frame->sequence % 300) == 0)
-            LOGI("frame check #%u: luma var %u, chroma var %u (n=%u)", frame->sequence, dy, dc, cnt);
+        if ((seq % 300) == 0)
+            LOGI("frame check #%u: luma var %u, chroma var %u (n=%u)", seq, dy, dc, cnt);
         if (glitch_streak == 8) {
             LOGW("frame #%u: luma/chroma look swapped for 8 frames (y=%u c=%u) -> restart",
-                 frame->sequence, dy, dc);
+                 seq, dy, dc);
             JNIEnv *genv; bool gatt = false;
             if (jvm->GetEnv((void**)&genv, JNI_VERSION_1_6) != JNI_OK) { jvm->AttachCurrentThread(&genv, NULL); gatt = true; }
             if (j_on_glitch) genv->CallVoidMethod((jobject)user_ptr, j_on_glitch, (jint)1);
@@ -151,15 +217,15 @@ static void frame_cb(uvc_frame_t *frame, void *user_ptr) {
         }
     }
 
-    int buf_idx = (int)(frame->sequence & 1u);
+    int buf_idx = (int)(deliver_cnt++ & 1u);
     if (!frame_bufs[buf_idx]) return;
-    memcpy(frame_bufs[buf_idx], frame->data, expected);
+    memcpy(frame_bufs[buf_idx], data, expected);
 
-    if (frame->sequence < 3) {
-        uint8_t *d = (uint8_t*)frame->data;
+    if (seq < 3) {
+        const uint8_t *d = data;
         LOGI("frame#%u buf=%d %dx%d fmt=%d bytes=%zu first8=%02x%02x%02x%02x%02x%02x%02x%02x",
-             frame->sequence, buf_idx, frame->width, frame->height,
-             (int)frame->frame_format, frame->data_bytes,
+             seq, buf_idx, w, h,
+             0, expected,
              d[0],d[1],d[2],d[3],d[4],d[5],d[6],d[7]);
     }
 
@@ -169,7 +235,7 @@ static void frame_cb(uvc_frame_t *frame, void *user_ptr) {
         attached = true;
     }
     env->CallVoidMethod((jobject)user_ptr, j_on_frame,
-                        (jint)buf_idx, (jint)frame->width, (jint)frame->height);
+                        (jint)buf_idx, (jint)w, (jint)h);
     if (attached) jvm->DetachCurrentThread();
 }
 
@@ -314,6 +380,7 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeStart(JNIEnv *env, jobject, jint fou
             usleep(attempt == 1 ? 50000 : 300000);
             frame_drop_cnt = 0;
             glitch_streak = 0;
+            stitch_len = 0; stitch_ok_cnt = 0;
             r = uvc_start_streaming(devh, &ctrl, frame_cb, j_camera_obj, 0);
             LOGI("attempt %d: uvc_start_streaming: %d (%s)", attempt, r, uvc_strerror(r));
             if (r == UVC_SUCCESS) { streaming = true; return JNI_TRUE; }
