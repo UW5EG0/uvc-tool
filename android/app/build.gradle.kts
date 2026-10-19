@@ -13,8 +13,8 @@ android {
         targetSdk = 35
         // Keep these literal (F-Droid reads them with a regex). The git tag must be
         // v<versionName>; CI refuses to build a tag that does not match.
-        versionCode = 406
-        versionName = "0.4.6"
+        versionCode = 407
+        versionName = "0.4.7"
         externalNativeBuild {
             cmake {
                 cppFlags("-std=c++17")

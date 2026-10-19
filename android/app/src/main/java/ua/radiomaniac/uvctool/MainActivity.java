@@ -55,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
     private static final String KEY_FLIP_MODE = "flip_mode";    // 0 off, 1 H, 2 V, 3 both
     private static final String KEY_PALETTE = "palette";        // Palettes.*
     private static final String KEY_CROP_PREFIX = "crop_top_";  // + camera key
+    private static final String KEY_ORIENT_LOCK = "orient_lock";  // -1 = follow the sensor, else ActivityInfo orientation
     private static final String KEY_ROTATION = "rotation";
     private static final String KEY_WARMTH = "warmth";
     private static final String KEY_LAST_CAMERA = "last_camera";     // "vvvv:pppp"
@@ -116,6 +117,8 @@ public class MainActivity extends AppCompatActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
 
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        int lock = prefs.getInt(KEY_ORIENT_LOCK, -1);
+        if (lock >= 0) setRequestedOrientation(lock);
         usbManager = (UsbManager) getSystemService(USB_SERVICE);
 
         cameraPermLauncher = registerForActivityResult(
@@ -342,19 +345,34 @@ public class MainActivity extends AppCompatActivity {
         // in the menu).
         android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
         Configuration c = getResources().getConfiguration();
+        // xdpi/ydpi are the panel's physical density; densityDpi is only the UI
+        // scale bucket and can be far off (CUBOT KingKong Mini 3: 204 vs real 284).
+        // Trust xdpi/ydpi when they agree with each other and look sane.
         float dpi = land ? dm.ydpi : dm.xdpi;
-        if (dpi < dm.densityDpi * 0.7f || dpi > dm.densityDpi * 1.3f) dpi = dm.densityDpi;  // bogus xdpi/ydpi
+        boolean physOk = dm.xdpi > 90 && dm.xdpi < 900 && dm.ydpi > 90 && dm.ydpi < 900
+                && Math.abs(dm.xdpi - dm.ydpi) < 0.1f * Math.max(dm.xdpi, dm.ydpi);
+        if (!physOk) dpi = dm.densityDpi;
         float mm = dpi / 25.4f;                                     // px per mm
         // panel margin is 6dp on each side (overlay.xml)
         float axisPx = (land ? c.screenHeightDp : c.screenWidthDp) * dm.density - dp(12);
         final float SHUTTER = 12f, BTN = 8f, BTN_MIN = 7f, GAP = 2f, GAP_SHUTTER = 2.5f, PAD = 2.5f;
         float fullMm = 2 * PAD + SHUTTER + 4 * BTN + 2 * GAP + 2 * GAP_SHUTTER;
         boolean compact = fullMm * mm > axisPx;
-        float btnMm = BTN;
+        float btnMm = BTN, shutterMm = SHUTTER, padMm = PAD;
         if (compact) {
-            float compactMm = 2 * PAD + SHUTTER + 2 * BTN + 2 * GAP_SHUTTER;
-            if (compactMm * mm > axisPx)                            // tiny screen: shrink side buttons
-                btnMm = Math.max(BTN_MIN, (axisPx / mm - 2 * PAD - SHUTTER - 2 * GAP_SHUTTER) / 2);
+            // Small screen, only three buttons: make them as big as the axis allows
+            // (up to +25%), trimming the end padding first, so they are easy to hit.
+            final float PAD_MIN = 1.5f, GROW_MAX = 1.25f;
+            float room = axisPx / mm - 2 * PAD_MIN - 2 * GAP_SHUTTER;
+            float grow = Math.min(GROW_MAX, room / (SHUTTER + 2 * BTN));
+            if (grow >= 1f) {
+                shutterMm = SHUTTER * grow;
+                btnMm = BTN * grow;
+                padMm = Math.max(PAD_MIN, Math.min(PAD, (axisPx / mm - shutterMm - 2 * btnMm - 2 * GAP_SHUTTER) / 2));
+            } else {                                                 // tiny screen: shrink side buttons
+                padMm = PAD_MIN;
+                btnMm = Math.max(BTN_MIN, (room - SHUTTER) / 2);
+            }
         }
         View[] order = compact
                 ? new View[]{ btnMode, btnShutter, btnGallery }
@@ -364,13 +382,13 @@ public class MainActivity extends AppCompatActivity {
         btnFlip.setVisibility(compact ? View.GONE : View.VISIBLE);
         btnRotate.setVisibility(compact ? View.GONE : View.VISIBLE);
 
-        int pad = Math.round(PAD * mm), across = Math.round(1.5f * mm);
+        int pad = Math.round(padMm * mm), across = Math.round(1.5f * mm);
         if (land) panel.setPadding(across, pad, across, pad); else panel.setPadding(pad, across, pad, across);
         for (int i = 0; i < panel.getChildCount(); i++) {
             View child = panel.getChildAt(i);
             boolean isShutter = child.getId() == R.id.btn_photo;
             boolean afterShutter = i > 0 && panel.getChildAt(i - 1).getId() == R.id.btn_photo;
-            int size = Math.round((isShutter ? SHUTTER : btnMm) * mm);
+            int size = Math.round((isShutter ? shutterMm : btnMm) * mm);
             int before = (i == 0) ? 0 : Math.round((isShutter || afterShutter ? GAP_SHUTTER : GAP) * mm);
             ViewGroup.MarginLayoutParams lp = (ViewGroup.MarginLayoutParams) child.getLayoutParams();
             lp.width = lp.height = size;
@@ -378,10 +396,17 @@ public class MainActivity extends AppCompatActivity {
             if (land) lp.topMargin = before; else lp.leftMargin = before;
             child.setLayoutParams(lp);
         }
+        // Top controls: at least 9 x 9 mm touch targets (menu button, source badge).
+        int touch = Math.max(dp(40), Math.round(9f * mm));
+        ViewGroup.LayoutParams lpLog = btnLog.getLayoutParams();
+        if (lpLog.width != touch) { lpLog.width = lpLog.height = touch; btnLog.setLayoutParams(lpLog); }
+        tvStatus.setMinHeight(touch);
+        tvStatus.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
         layoutAdjustPanel(land);
         Log.i(TAG, String.format(Locale.US,
-                "panel: %s, axis %.1f mm, shutter %.1f mm, buttons %.1f mm (dpi %.0f, full needs %.1f mm)",
-                compact ? "compact" : "full", axisPx / mm, SHUTTER, btnMm, dpi, fullMm));
+                "panel: %s, axis %.1f mm, shutter %.1f mm, buttons %.1f mm, touch %.1f mm (dpi %.0f, full needs %.1f mm)",
+                compact ? "compact" : "full", axisPx / mm, shutterMm, btnMm, touch / mm, dpi, fullMm));
     }
 
     private void setupCamera() {
@@ -886,6 +911,8 @@ public class MainActivity extends AppCompatActivity {
         pal.setGroupCheckable(3, true, true);
         m.add(0, 60, 3, R.string.menu_crop_top).setCheckable(true).setChecked(renderer.cropTop)
                 .setEnabled(!recording);
+        m.add(0, 80, 3, R.string.menu_orient_lock).setCheckable(true)
+                .setChecked(prefs.getInt(KEY_ORIENT_LOCK, -1) >= 0);
         m.add(0, 40, 3, R.string.menu_wb).setCheckable(true).setChecked(panelWb.getVisibility() == View.VISIBLE);
         m.add(2, 1, 4, R.string.menu_log).setCheckable(true).setChecked(logPanel.isShown());
         if (Updater.enabled()) m.add(2, 2, 5, R.string.update_check);
@@ -911,6 +938,7 @@ public class MainActivity extends AppCompatActivity {
                     glView.requestRender();
                     return true;
                 case 30: rotate90(); return true;
+                case 80: toggleOrientationLock(); return true;
                 case 40:
                     panelWb.setVisibility(panelWb.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
                     return true;
@@ -927,6 +955,39 @@ public class MainActivity extends AppCompatActivity {
             return false;
         });
         pm.show();
+    }
+
+    /** "Ignore the phone's gyroscope": freeze the screen in its current orientation. */
+    private void toggleOrientationLock() {
+        int lock = prefs.getInt(KEY_ORIENT_LOCK, -1);
+        if (lock >= 0) {
+            lock = -1;
+            setRequestedOrientation(android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        } else {
+            lock = currentOrientation();
+            setRequestedOrientation(lock);
+        }
+        prefs.edit().putInt(KEY_ORIENT_LOCK, lock).apply();
+        Log.i(TAG, "orientation lock: " + lock);
+    }
+
+    /** The current screen orientation as an ActivityInfo constant (works for
+     *  phones that are naturally portrait and tablets that are naturally landscape). */
+    private int currentOrientation() {
+        int rot = getWindowManager().getDefaultDisplay().getRotation();
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        boolean wide = dm.widthPixels > dm.heightPixels;
+        boolean naturalPortrait = ((rot == android.view.Surface.ROTATION_0 || rot == android.view.Surface.ROTATION_180) != wide);
+        int[] map = naturalPortrait
+                ? new int[] { android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+                              android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+                              android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT,
+                              android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE }
+                : new int[] { android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
+                              android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
+                              android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
+                              android.content.pm.ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT };
+        return map[rot & 3];
     }
 
     /** Tell the renderer where the controls are so the picture can sit beside them. */
