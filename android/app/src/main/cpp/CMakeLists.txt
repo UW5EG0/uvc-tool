@@ -27,7 +27,7 @@ target_include_directories(usb-1.0 PUBLIC
 target_include_directories(usb-1.0 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/config)
 target_compile_definitions(usb-1.0 PRIVATE _GNU_SOURCE)
 
-# libuvc — static, no JPEG
+# libuvc — static, no JPEG (MJPEG is decoded by libjpeg-turbo in the JNI)
 add_library(uvc STATIC
     ${LIBUVC_SRC}/src/ctrl.c
     ${LIBUVC_SRC}/src/ctrl-gen.c
@@ -57,9 +57,42 @@ target_compile_definitions(uvc PUBLIC
     LIBUVC_NUM_TRANSFER_BUFS=128
     LIBUVC_PACKETS_PER_TRANSFER_MAX=8)
 
+# libjpeg-turbo (TurboJPEG API, static) for MJPEG modes. Its build refuses
+# add_subdirectory(), so it is built as an external project with the same NDK
+# toolchain; only the turbojpeg-static target is built.
+include(ExternalProject)
+set(LIBJPEG_TURBO_SRC ${ROOT_DIR}/third_party/libjpeg-turbo)
+set(LIBJPEG_TURBO_BIN ${CMAKE_BINARY_DIR}/libjpeg-turbo)
+ExternalProject_Add(libjpeg_turbo_ext
+    SOURCE_DIR ${LIBJPEG_TURBO_SRC}
+    BINARY_DIR ${LIBJPEG_TURBO_BIN}
+    CMAKE_GENERATOR ${CMAKE_GENERATOR}
+    CMAKE_ARGS
+        -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE}
+        -DCMAKE_MAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}
+        -DANDROID_ABI=${ANDROID_ABI}
+        -DANDROID_PLATFORM=${ANDROID_PLATFORM}
+        -DANDROID_NDK=${ANDROID_NDK}
+        -DCMAKE_BUILD_TYPE=Release
+        -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+        -DENABLE_SHARED=OFF
+        -DENABLE_STATIC=ON
+        -DWITH_TURBOJPEG=ON
+        -DWITH_TOOLS=OFF
+        -DWITH_TESTS=OFF
+        -DWITH_JAVA=OFF
+    BUILD_COMMAND ${CMAKE_COMMAND} --build ${LIBJPEG_TURBO_BIN} --target turbojpeg-static
+    INSTALL_COMMAND ""
+    BUILD_BYPRODUCTS ${LIBJPEG_TURBO_BIN}/libturbojpeg.a
+)
+add_library(turbojpeg STATIC IMPORTED)
+set_target_properties(turbojpeg PROPERTIES IMPORTED_LOCATION ${LIBJPEG_TURBO_BIN}/libturbojpeg.a)
+add_dependencies(turbojpeg libjpeg_turbo_ext)
+
 # JNI shared library
 add_library(uvctool SHARED uvctool_jni.cpp)
-target_link_libraries(uvctool uvc usb-1.0 android log)
+target_include_directories(uvctool PRIVATE ${LIBJPEG_TURBO_SRC}/src)
+target_link_libraries(uvctool uvc usb-1.0 turbojpeg android log)
 # 16 KB page alignment (Android 15+ devices with 16 KB pages; NDK r26 defaults to 4 KB).
 target_link_options(uvctool PRIVATE
     "-Wl,-z,max-page-size=16384"

@@ -1,8 +1,8 @@
 # UVC Tool
 
 Android-застосунок для USB-ендоскопів і простих UVC-камер (перевірено на
-`349c:0411 Generic HD camera`). Працює з будь-якою UVC-камерою, що віддає YUYV;
-MJPEG — у планах. Чиста Java + власний нативний
+`349c:0411 Generic HD camera`). Працює з будь-якою UVC-камерою, що віддає YUYV
+або MJPEG (наприклад, HDMI-грабери на MS2107 до 1080p). Чиста Java + власний нативний
 шар на libuvc/libusb, без сторонніх «камерних» обгорток.
 
 <p align="center"><img src="docs/qr-releases.png" width="180" alt="QR: остання версія"></p>

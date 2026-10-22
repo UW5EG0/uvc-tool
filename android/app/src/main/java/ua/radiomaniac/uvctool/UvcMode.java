@@ -25,7 +25,7 @@ public final class UvcMode {
     public int maxFps() { return fps.length > 0 ? fps[0] : 0; }
 
     /** Formats the app can display today. */
-    public boolean supported() { return fourcc == FOURCC_YUY2; }
+    public boolean supported() { return fourcc == FOURCC_YUY2 || fourcc == FOURCC_MJPG; }
 
     public String formatName() {
         switch (fourcc) {

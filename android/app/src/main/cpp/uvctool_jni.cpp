@@ -1,4 +1,5 @@
 #include <time.h>
+#include "mjpeg.h"
 #include <jni.h>
 #include <android/log.h>
 #include <libusb.h>
@@ -138,7 +139,113 @@ static int64_t now_us() {
 
 static void deliver_frame(const uint8_t *data, int w, int h, uint32_t seq, void *user_ptr);
 
+// --- MJPEG ---------------------------------------------------------------------
+static MjpegDecoder mjpeg;
+static uint8_t  *mjpeg_out     = NULL;
+static size_t    mjpeg_out_cap = 0;
+static uint32_t  mjpeg_ok_cnt  = 0, mjpeg_bad_cnt = 0;
+static int64_t   mjpeg_us_sum  = 0;
+
+// A JPEG is complete when it ends in EOI (FF D9), possibly followed by padding.
+static bool jpeg_has_eoi(const uint8_t *d, size_t n) {
+    size_t lim = n > 1024 ? n - 1024 : 0;
+    for (size_t i = n; i >= lim + 2; i--)
+        if (d[i - 2] == 0xFF && d[i - 1] == 0xD9) return true;
+    return false;
+}
+static bool jpeg_has_soi(const uint8_t *d, size_t n) { return n >= 2 && d[0] == 0xFF && d[1] == 0xD8; }
+
+// Split MJPEG frames (head with SOI but no EOI, tail without SOI) are glued back
+// together like the YUYV ones; a frame that stays incomplete is dropped rather
+// than shown with a grey/noisy bottom.
+static uint8_t  *mjpeg_acc     = NULL;
+static size_t    mjpeg_acc_cap = 0, mjpeg_acc_len = 0;
+static int64_t   mjpeg_acc_t   = 0;
+static uint32_t  mjpeg_glued   = 0, mjpeg_cut = 0;
+
+static void mjpeg_decode(const uint8_t *jpg, size_t n, int w, int h, uint32_t seq, void *user_ptr) {
+    size_t need = (size_t)w * h * 2;
+    if (mjpeg_out_cap < need) {
+        free(mjpeg_out);
+        mjpeg_out = (uint8_t *)malloc(need);
+        mjpeg_out_cap = mjpeg_out ? need : 0;
+        if (!mjpeg_out) return;
+    }
+    int64_t t0 = now_us();
+    int ss = -1;
+    const char *err = "";
+    int r = mjpeg_to_yuyv(&mjpeg, jpg, n, w, h, mjpeg_out, &ss, &err);
+    int64_t dt = now_us() - t0;
+    // A "premature end" means rows are missing: keep the previous picture.
+    if (r == MJPEG_WARN && strstr(err, "Premature end")) r = MJPEG_DECODE;
+    if (r != MJPEG_OK) {
+        mjpeg_bad_cnt++;
+        if (mjpeg_bad_cnt < 20 || (mjpeg_bad_cnt % 100) == 0)
+            LOGW("mjpeg frame#%u (%zu bytes): %s%s (rc=%d, bad=%u)", seq, n,
+                 err, r == MJPEG_WARN ? ", shown anyway" : ", dropped", r, mjpeg_bad_cnt);
+        if (r < 0) return;
+    }
+    mjpeg_ok_cnt++;
+    mjpeg_us_sum += dt;
+    if (mjpeg_ok_cnt == 1)
+        LOGI("mjpeg: first frame %dx%d, subsampling %d, %zu bytes, decode %lld us",
+             w, h, ss, n, (long long)dt);
+    if ((mjpeg_ok_cnt % 300) == 0)
+        LOGI("mjpeg: %u frames, avg decode %lld us, bad %u, glued %u, incomplete %u", mjpeg_ok_cnt,
+             (long long)(mjpeg_us_sum / mjpeg_ok_cnt), mjpeg_bad_cnt, mjpeg_glued, mjpeg_cut);
+    deliver_frame(mjpeg_out, w, h, seq, user_ptr);
+}
+
+static void mjpeg_frame(uvc_frame_t *frame, void *user_ptr) {
+    const uint8_t *d = (const uint8_t *)frame->data;
+    size_t n = frame->data_bytes;
+    int w = frame->width, h = frame->height;
+    bool soi = jpeg_has_soi(d, n), eoi = jpeg_has_eoi(d, n);
+    int64_t t = now_us();
+
+    if (soi && eoi) {                                   // the normal case
+        if (mjpeg_acc_len) { mjpeg_cut++; mjpeg_acc_len = 0; }
+        mjpeg_decode(d, n, w, h, frame->sequence, user_ptr);
+        return;
+    }
+    if (soi) {                                          // head without EOI: wait for the rest
+        if (mjpeg_acc_len) mjpeg_cut++;
+        if (mjpeg_acc_cap < n + 65536) {
+            size_t cap = (size_t)w * h * 2 + 65536;      // a JPEG never needs more than raw size
+            if (cap < n + 65536) cap = n + 65536;
+            free(mjpeg_acc);
+            mjpeg_acc = (uint8_t *)malloc(cap);
+            mjpeg_acc_cap = mjpeg_acc ? cap : 0;
+            if (!mjpeg_acc) { mjpeg_acc_len = 0; return; }
+        }
+        memcpy(mjpeg_acc, d, n);
+        mjpeg_acc_len = n;
+        mjpeg_acc_t = t;
+        return;
+    }
+    if (mjpeg_acc_len && t - mjpeg_acc_t < 20000 && mjpeg_acc_len + n <= mjpeg_acc_cap) {
+        memcpy(mjpeg_acc + mjpeg_acc_len, d, n);        // tail: glue
+        mjpeg_acc_len += n;
+        mjpeg_acc_t = t;
+        if (eoi) {
+            mjpeg_glued++;
+            if (mjpeg_glued == 1 || (mjpeg_glued % 100) == 0)
+                LOGW("mjpeg: glued split frame #%u (%zu bytes, %u so far)", frame->sequence, mjpeg_acc_len, mjpeg_glued);
+            size_t len = mjpeg_acc_len;
+            mjpeg_acc_len = 0;
+            mjpeg_decode(mjpeg_acc, len, w, h, frame->sequence, user_ptr);
+        }
+        return;
+    }
+    if (mjpeg_acc_len) mjpeg_cut++;
+    mjpeg_acc_len = 0;
+    mjpeg_bad_cnt++;
+    if (mjpeg_bad_cnt < 20 || (mjpeg_bad_cnt % 100) == 0)
+        LOGW("mjpeg frame#%u (%zu bytes): fragment without SOI, dropped (bad=%u)", frame->sequence, n, mjpeg_bad_cnt);
+}
+
 static void frame_cb(uvc_frame_t *frame, void *user_ptr) {
+    if (frame->frame_format == UVC_FRAME_FORMAT_MJPEG) { mjpeg_frame(frame, user_ptr); return; }
     size_t expected = (size_t)frame->width * frame->height * 2;
     if (frame->data_bytes == expected) {
         stitch_len = 0;
@@ -357,7 +464,7 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeStart(JNIEnv *env, jobject, jint fou
     if (!devh) { LOGE("nativeStart: no device"); return JNI_FALSE; }
     req_format = format_from_fourcc((uint32_t)fourcc);
     req_w = w; req_h = h; req_fps = fps;
-    if (req_format != UVC_FRAME_FORMAT_YUYV) {
+    if (req_format != UVC_FRAME_FORMAT_YUYV && req_format != UVC_FRAME_FORMAT_MJPEG) {
         LOGE("nativeStart: format %08x not supported yet", (unsigned)fourcc);
         return JNI_FALSE;
     }
@@ -386,6 +493,7 @@ Java_ua_radiomaniac_uvctool_UvcCamera_nativeStart(JNIEnv *env, jobject, jint fou
             frame_drop_cnt = 0;
             glitch_streak = 0;
             stitch_len = 0; stitch_ok_cnt = 0;
+            mjpeg_ok_cnt = mjpeg_bad_cnt = mjpeg_glued = mjpeg_cut = 0; mjpeg_us_sum = 0; mjpeg_acc_len = 0;
             uvctool_junk = 0;
             r = uvc_start_streaming(devh, &ctrl, frame_cb, j_camera_obj, 0);
             LOGI("attempt %d: uvc_start_streaming: %d (%s)", attempt, r, uvc_strerror(r));

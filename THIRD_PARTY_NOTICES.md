@@ -17,5 +17,14 @@ See `third_party/libuvc/LICENSE.txt`. `android/app/src/main/cpp/config/libuvc/li
 is libuvc's generated config header (v0.0.8, JPEG disabled); `config/version_describe.h`
 replaces libusb's generated version header.
 
+## libjpeg-turbo — IJG License, Modified (3-clause) BSD License, zlib License
+https://github.com/libjpeg-turbo/libjpeg-turbo — decodes MJPEG camera frames.
+This software is based in part on the work of the Independent JPEG Group.
+See `third_party/libjpeg-turbo/LICENSE.md`. Linked statically (TurboJPEG API).
+
+## libuvc patch
+`android/app/src/main/cpp/config/libuvc/stream.c` is a modified copy of libuvc's
+`src/stream.c` (BSD-3-Clause, changes marked "UVC Tool" in the file).
+
 ## AndroidX / Material Components — Apache-2.0
 Pulled from Google's Maven repository at build time.
