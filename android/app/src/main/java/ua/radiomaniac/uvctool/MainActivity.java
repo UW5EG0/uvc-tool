@@ -833,13 +833,15 @@ public class MainActivity extends AppCompatActivity {
         new com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
                 .setTitle(R.string.menu_report)
                 .setView(v)
-                .setPositiveButton(R.string.report_github, (d, w) -> sendReport(et.getText().toString(), true))
+                .setPositiveButton(R.string.report_dev, (d, w) -> sendReport(et.getText().toString(), true))
                 .setNeutralButton(R.string.report_share, (d, w) -> sendReport(et.getText().toString(), false))
                 .setNegativeButton(android.R.string.cancel, null)
                 .show();
     }
 
-    private void sendReport(String comment, boolean github) {
+    /** Writes the report to a .txt file and hands it over: to the developer's
+     *  mail (toDev) or to any app the user picks. */
+    private void sendReport(String comment, boolean toDev) {
         ReportBuilder.CameraState cs = new ReportBuilder.CameraState();
         cs.device = currentDevice;
         cs.mode = camera.getMode();
@@ -851,25 +853,62 @@ public class MainActivity extends AppCompatActivity {
         cs.screen = screenInfo();
         String title = ReportBuilder.title(comment);
         String body = ReportBuilder.body(this, comment, cs, logPanel.snapshot());
-        // the full text always goes to the clipboard: the GitHub URL may carry a shortened log
-        android.content.ClipboardManager cm =
-                (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        cm.setPrimaryClip(android.content.ClipData.newPlainText(title, body));
+        String name = "uvctool-report-" + new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
+                .format(new java.util.Date()) + ".txt";
         try {
-            if (github) {
-                startActivity(new Intent(Intent.ACTION_VIEW, ReportBuilder.issueUrl(title, body)));
-                Toast.makeText(this, R.string.report_opened, Toast.LENGTH_LONG).show();
-            } else {
-                Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
-                        .putExtra(Intent.EXTRA_SUBJECT, title)
-                        .putExtra(Intent.EXTRA_TEXT, body);
-                startActivity(Intent.createChooser(send, getString(R.string.report_share)));
+            java.io.File dir = new java.io.File(getCacheDir(), "reports");
+            java.io.File[] old = dir.listFiles();
+            if (old != null) for (java.io.File f : old) f.delete();   // keep only the latest
+            if (!dir.isDirectory() && !dir.mkdirs()) throw new java.io.IOException("no cache dir");
+            java.io.File f = new java.io.File(dir, name);
+            try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                out.write((title + "\n\n" + body).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             }
+            android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                    this, getPackageName() + ".reports", f);
+            String text = (comment == null || comment.trim().isEmpty() ? "" : comment.trim() + "\n\n")
+                    + "Звіт UVC Tool — у вкладеному файлі " + name;
+            Intent send = new Intent(Intent.ACTION_SEND).setType("text/plain")
+                    .putExtra(Intent.EXTRA_SUBJECT, title)
+                    .putExtra(Intent.EXTRA_TEXT, text)
+                    .putExtra(Intent.EXTRA_STREAM, uri)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            send.setClipData(android.content.ClipData.newRawUri(name, uri));
+            if (toDev) {
+                // Send (with the attachment) only to apps that handle mailto:. A SENDTO
+                // selector would be shorter, but Gmail then drops the attachment.
+                send.putExtra(Intent.EXTRA_EMAIL, new String[]{ ReportBuilder.DEV_EMAIL });
+                android.content.pm.PackageManager pm = getPackageManager();
+                java.util.List<Intent> targets = new java.util.ArrayList<>();
+                java.util.Set<String> seen = new java.util.HashSet<>();
+                for (android.content.pm.ResolveInfo ri : pm.queryIntentActivities(
+                        new Intent(Intent.ACTION_SENDTO, android.net.Uri.parse("mailto:")), 0)) {
+                    String pkg = ri.activityInfo.packageName;
+                    if (!seen.add(pkg)) continue;
+                    Intent t = new Intent(send).setPackage(pkg);
+                    if (t.resolveActivity(pm) != null) targets.add(t);
+                }
+                if (targets.size() == 1) { startActivity(targets.get(0)); return; }
+                if (targets.size() > 1) {
+                    Intent chooser = Intent.createChooser(targets.remove(0), getString(R.string.report_dev));
+                    chooser.putExtra(Intent.EXTRA_INITIAL_INTENTS, targets.toArray(new android.os.Parcelable[0]));
+                    startActivity(chooser);
+                    return;
+                }
+                Toast.makeText(this, R.string.report_no_mail, Toast.LENGTH_LONG).show();
+            }
+            startActivity(Intent.createChooser(send, getString(R.string.report_share)));
         } catch (Exception e) {
-            Log.e(TAG, "report: cannot open target", e);
-            Toast.makeText(this, R.string.report_copied, Toast.LENGTH_LONG).show();
+            Log.e(TAG, "report: " + e);
+            android.content.ClipboardManager cm =
+                    (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+            cm.setPrimaryClip(android.content.ClipData.newPlainText(title, body));
+            Toast.makeText(this, R.string.report_file_failed, Toast.LENGTH_LONG).show();
         }
     }
+
+
+
 
     /** Round gallery button shows the newest photo/video, or the gallery icon. */
     private void refreshGalleryThumb() {

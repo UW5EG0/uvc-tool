@@ -22,7 +22,8 @@ import java.util.Locale;
 public final class ReportBuilder {
 
     /** Prefilled-issue URLs above ~8 KB are refused by GitHub; leave room for encoding. */
-    private static final int MAX_URL_BODY = 5500;
+    /** Where "Розробнику" sends reports (published on purpose by the developer). */
+    public static final String DEV_EMAIL = "uw5ego@gmail.com";
 
     public static final class CameraState {
         public UsbDevice device;
@@ -105,27 +106,6 @@ public final class ReportBuilder {
 
         sb.append("### Лог\n\n```\n").append(log == null ? "" : log.trim()).append("\n```\n");
         return sb.toString();
-    }
-
-    /**
-     * New-issue URL with title and body prefilled. The log is cut from the top
-     * (oldest lines) so the URL stays under GitHub's limit; the full text is
-     * meant to be on the clipboard as well.
-     */
-    public static Uri issueUrl(String title, String body) {
-        String b = body;
-        if (b.length() > MAX_URL_BODY) {
-            int logAt = b.indexOf("### Лог");
-            String head = logAt >= 0 ? b.substring(0, logAt) : "";
-            String tail = b.substring(b.length() - Math.max(0, MAX_URL_BODY - head.length() - 200));
-            int nl = tail.indexOf('\n');
-            if (nl >= 0) tail = tail.substring(nl + 1);
-            b = head + "### Лог (кінець; повний текст скопійовано — встав нижче, якщо потрібно)\n\n```\n" + tail;
-        }
-        return Uri.parse(Updater.REPO_URL + "/issues/new").buildUpon()
-                .appendQueryParameter("title", title)
-                .appendQueryParameter("body", b)
-                .build();
     }
 
     private interface S { String get() throws Exception; }

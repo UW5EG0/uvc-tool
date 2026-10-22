@@ -64,10 +64,11 @@
     <string name="menu_log">Лог на екрані</string>
     <string name="menu_report">Поскаржитись</string>
     <string name="report_hint">Що сталося? Що робили перед цим?</string>
-    <string name="report_info">До звіту додаються: версії застосунку й Android, модель телефона, дозволи, список USB-пристроїв, режим камери і лог. Нічого не надсилається само — відкриється форма на GitHub (потрібен акаунт), де текст можна переглянути перед відправкою. Повний звіт також копіюється в буфер обміну.</string>
-    <string name="report_github">На GitHub</string>
+    <string name="report_info">До звіту додаються: версії застосунку й Android, модель телефона, дозволи, список USB-пристроїв, режим камери і лог. Звіт іде файлом .txt. «Розробнику» відкриє пошту з адресою розробника і прикріпленим файлом, «Поділитися» дозволяє відправити файл куди завгодно (Telegram, Viber…). Нічого не надсилається само.</string>
+    <string name="report_dev">Розробнику</string>
     <string name="report_share">Поділитися</string>
-    <string name="report_opened">Звіт скопійовано в буфер. Перевір текст і натисни «Submit new issue».</string>
+    <string name="report_no_mail">Немає поштової програми — вибери, куди відправити файл</string>
+    <string name="report_file_failed">Не вдалося відправити файл звіту — текст скопійовано в буфер обміну</string>
     <string name="report_copied">Звіт скопійовано в буфер обміну</string>
     <string name="menu_gallery">Галерея</string>
     <string name="menu_mirror">Дзеркало</string>
